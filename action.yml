@@ -66,6 +66,7 @@ runs:
       id: plan
       shell: bash
       run: terraform plan -no-color
+      working-directory: ${{ inputs.working_directory }}
       if: github.event_name == 'pull_request'
       continue-on-error: true      
 
