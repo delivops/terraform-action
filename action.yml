@@ -19,8 +19,9 @@ inputs:
     required: false
     default: '1.9.8'
   environment:
-    desctiption: 'Terraform environment'
+    description: 'Terraform environment' # <-- Typo fixed (was "desctiption")
     required: true  
+
 runs:
   using: "composite"
   steps:
@@ -40,59 +41,62 @@ runs:
 
     - name: Terraform fmt check
       id: fmt
+      shell: bash
       run: terraform fmt -check
       continue-on-error: true
 
     - name: Terraform Init
       id: init
+      shell: bash
       run: terraform init || terraform init -upgrade
 
     - name: Terraform Validate
       id: validate
+      shell: bash
       run: terraform validate -no-color
 
     - name: Terraform Plan
       id: plan
       if: github.event_name == 'pull_request'
+      shell: bash
       run: terraform plan -no-color
       continue-on-error: true
 
     - name: Comment Plan on PR
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v7
-      env:
-        PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
       with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+        github-token: ${{ github.token }} 
+
         script: |
           const { data: comments } = await github.rest.issues.listComments({
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
           });
-    
+
           const botComment = comments.find(comment => comment.user.type === "Bot" && comment.body.includes('## Terraform ${{ inputs.environment }}'));
-    
+
           const output = `## Terraform ${{ inputs.environment }}
           #### Terraform Format and Style 🖌 \`${{ steps.fmt.outcome }}\`
           #### Terraform Initialization ⚙️ \`${{ steps.init.outcome }}\`
           #### Terraform Validation 🤖 \`${{ steps.validate.outcome }}\`
           <details><summary>Validation Output</summary>
-    
+
           \`\`\`\n${{ steps.validate.outputs.stdout }}\`\`\`
-    
+
           </details>
-    
+
           #### Terraform Plan 📖 \`${{ steps.plan.outcome }}\`
-    
+
           <details><summary>Show Plan</summary>
-    
-          \`\`\`${process.env.PLAN}\`\`\`
-    
+
+          \`\`\`\n${{ steps.plan.outputs.stdout }}\`\`\`
+
           </details>
-    
+
           *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-    
+
           if (botComment) {
             await github.rest.issues.updateComment({
               comment_id: botComment.id,
@@ -110,8 +114,10 @@ runs:
 
     - name: Fail if Plan Failed
       if: steps.plan.outcome == 'failure'
+      shell: bash
       run: exit 1
 
     - name: Terraform Apply
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      shell: bash
       run: terraform apply -auto-approve -input=false
