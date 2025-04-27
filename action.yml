@@ -74,7 +74,7 @@ runs:
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v7
       with:
-        github-token: ${{ inputs.github.token }} 
+        github-token: ${{ inputs.github_token }} 
 
         script: |
           const { data: comments } = await github.rest.issues.listComments({
