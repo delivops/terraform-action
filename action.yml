@@ -36,7 +36,7 @@ runs:
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws_role:  "arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ inputs.aws_role }}"
+        role-to-assume:  "arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ inputs.aws_role }}"
         aws-region: ${{ inputs.aws_region }}
 
     - name: Setup Terraform
