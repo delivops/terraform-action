@@ -84,7 +84,7 @@ runs:
             repo: context.repo.repo,
           });
     
-          const botComment = comments.find(comment.body.includes('## Terraform ${environment}'));
+          const botComment = comments.find(comment => comment.body.includes(`## Terraform ${environment}`));
     
           const output = `## Terraform ${environment}
           #### Terraform Format and Style 🖌 \`${{ steps.fmt.outcome }}\`
