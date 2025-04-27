@@ -1,4 +1,4 @@
-name: 'Terraform Action'
+name: 'delivops-github-action-terraform'
 description: 'Fully automated Terraform GitHub Action: fmt, init, validate, plan, apply.'
 author: 'delivops'
 branding:
