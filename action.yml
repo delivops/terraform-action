@@ -5,22 +5,27 @@ branding:
   icon: 'cloud'
   color: 'purple'
 inputs:
-  working-directory:
+  working_directory:
     description: 'Directory containing Terraform configuration'
     required: true
-  aws-region:
+  aws_region:
     description: 'AWS Region'
     required: true
-  role-to-assume:
+  aws_role:
     description: 'AWS Role to assume for authentication'
     required: true
-  terraform-version:
+  terraform_version:
     description: 'Terraform version to install'
     required: false
     default: '1.9.8'
   environment:
     description: 'Terraform environment' 
     required: true  
+  aws_account_id:
+    required: true
+  github_token:
+    description: 'GitHub token'
+    required: true 
 
 runs:
   using: "composite"
@@ -31,13 +36,13 @@ runs:
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: ${{ inputs.role-to-assume }}
-        aws-region: ${{ inputs.aws-region }}
+        aws_role:  "arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ inputs.aws_role }}"
+        aws-region: ${{ inputs.aws_region }}
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
-        terraform_version: ${{ inputs.terraform-version }}
+        terraform_version: ${{ inputs.terraform_version }}
 
     - name: Terraform fmt check
       id: fmt
@@ -69,7 +74,7 @@ runs:
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v7
       with:
-        github-token: ${{ github.token }} 
+        github-token: ${{ inputs.github.token }} 
 
         script: |
           const { data: comments } = await github.rest.issues.listComments({
