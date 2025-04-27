@@ -83,7 +83,9 @@ runs:
           #### Terraform Validation 🤖 \`${{ steps.validate.outcome }}\`
           <details><summary>Validation Output</summary>
           
-          \`\`\`\n${{ steps.validate.outputs.stdout }}\`\`\`
+          \`\`\`\
+          ${{ steps.validate.outputs.stdout }}
+          \`\`\`
           
           </details>
           
@@ -91,7 +93,9 @@ runs:
           
           <details><summary>Show Plan</summary>
           
-          \`\`\`${process.env.PLAN}\`\`\`
+          \`\`\`
+          ${{ steps.plan.outputs.stdout }}
+          \`\`\`
           
           </details>
           
