@@ -67,7 +67,7 @@ runs:
       env:
         PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
       with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+        github-token: ${{ inputs.github_token }}
         script: |
           const environment = "${{ inputs.environment }}";
           const { data: comments } = await github.rest.issues.listComments({
