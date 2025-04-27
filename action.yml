@@ -1,0 +1,117 @@
+name: 'Terraform Action'
+description: 'Fully automated Terraform GitHub Action: fmt, init, validate, plan, apply.'
+author: 'Delivops'
+branding:
+  icon: 'cloud'
+  color: 'purple'
+inputs:
+  working-directory:
+    description: 'Directory containing Terraform configuration'
+    required: true
+  aws-region:
+    description: 'AWS Region'
+    required: true
+  role-to-assume:
+    description: 'AWS Role to assume for authentication'
+    required: true
+  terraform-version:
+    description: 'Terraform version to install'
+    required: false
+    default: '1.9.8'
+  environment:
+    desctiption: 'Terraform environment'
+    required: true  
+runs:
+  using: "composite"
+  steps:
+    - name: Git checkout
+      uses: actions/checkout@v4
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v1-node16
+      with:
+        role-to-assume: ${{ inputs.role-to-assume }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+
+    - name: Terraform fmt check
+      id: fmt
+      run: terraform fmt -check
+      continue-on-error: true
+
+    - name: Terraform Init
+      id: init
+      run: terraform init || terraform init -upgrade
+
+    - name: Terraform Validate
+      id: validate
+      run: terraform validate -no-color
+
+    - name: Terraform Plan
+      id: plan
+      if: github.event_name == 'pull_request'
+      run: terraform plan -no-color
+      continue-on-error: true
+
+    - name: Comment Plan on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      env:
+        PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const { data: comments } = await github.rest.issues.listComments({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+          });
+    
+          const botComment = comments.find(comment => comment.user.type === "Bot" && comment.body.includes('## Terraform ${{ inputs.environment }}'));
+    
+          const output = `## Terraform ${{ inputs.environment }}
+          #### Terraform Format and Style 🖌 \`${{ steps.fmt.outcome }}\`
+          #### Terraform Initialization ⚙️ \`${{ steps.init.outcome }}\`
+          #### Terraform Validation 🤖 \`${{ steps.validate.outcome }}\`
+          <details><summary>Validation Output</summary>
+    
+          \`\`\`\n${{ steps.validate.outputs.stdout }}\`\`\`
+    
+          </details>
+    
+          #### Terraform Plan 📖 \`${{ steps.plan.outcome }}\`
+    
+          <details><summary>Show Plan</summary>
+    
+          \`\`\`${process.env.PLAN}\`\`\`
+    
+          </details>
+    
+          *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+    
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              comment_id: botComment.id,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output,
+            });
+
+    - name: Fail if Plan Failed
+      if: steps.plan.outcome == 'failure'
+      run: exit 1
+
+    - name: Terraform Apply
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: terraform apply -auto-approve -input=false
