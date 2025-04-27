@@ -77,15 +77,16 @@ runs:
         github-token: ${{ inputs.github_token }} 
 
         script: |
+          const environment = "${{ inputs.environment }}";
           const { data: comments } = await github.rest.issues.listComments({
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
           });
 
-          const botComment = comments.find(comment => comment.user.type === "Bot" && comment.body.includes('## Terraform ${{ inputs.environment }}'));
+          const botComment = comments.find(comment => comment.user.type === "Bot" && comment.body.includes('## Terraform ${environment}'));
 
-          const output = `## Terraform ${{ inputs.environment }}
+          const output = `## Terraform ${environment}
           #### Terraform Format and Style 🖌 \`${{ steps.fmt.outcome }}\`
           #### Terraform Initialization ⚙️ \`${{ steps.init.outcome }}\`
           #### Terraform Validation 🤖 \`${{ steps.validate.outcome }}\`
