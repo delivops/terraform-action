@@ -61,9 +61,10 @@ runs:
       shell: bash
       run: terraform validate -no-color
       working-directory: ${{ inputs.working_directory }}
-      
+
     - name: Terraform Plan
       id: plan
+      shell: bash
       run: terraform plan -no-color
       if: github.event_name == 'pull_request'
       continue-on-error: true      
