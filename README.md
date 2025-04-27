@@ -65,10 +65,11 @@ on:
 
 jobs:
   deploy:
-    uses: your-org/terraform-global-action@v1
-    secrets:
-      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    uses: delivops/terraform-action@0.0.2
     with:
-      working-directory: global
+        working_directory: "global"
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        aws_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
+        environment: "Global"
+        aws_region: ${{ secrets.AWS_DEFAULT_REGION }}
+        aws_role: "github_terraform"
