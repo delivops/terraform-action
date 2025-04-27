@@ -1,6 +1,6 @@
 name: 'Terraform Action'
 description: 'Fully automated Terraform GitHub Action: fmt, init, validate, plan, apply.'
-author: 'Delivops'
+author: 'delivops'
 branding:
   icon: 'cloud'
   color: 'purple'
@@ -19,7 +19,7 @@ inputs:
     required: false
     default: '1.9.8'
   environment:
-    description: 'Terraform environment' # <-- Typo fixed (was "desctiption")
+    description: 'Terraform environment' 
     required: true  
 
 runs:
@@ -29,7 +29,7 @@ runs:
       uses: actions/checkout@v4
 
     - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v1-node16
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ inputs.role-to-assume }}
         aws-region: ${{ inputs.aws-region }}
@@ -49,11 +49,13 @@ runs:
       id: init
       shell: bash
       run: terraform init || terraform init -upgrade
+      working-directory: ${{ inputs.working_directory }}
 
     - name: Terraform Validate
       id: validate
       shell: bash
       run: terraform validate -no-color
+      working-directory: ${{ inputs.working_directory }}
 
     - name: Terraform Plan
       id: plan
@@ -61,6 +63,7 @@ runs:
       shell: bash
       run: terraform plan -no-color
       continue-on-error: true
+      working-directory: ${{ inputs.working_directory }}
 
     - name: Comment Plan on PR
       if: github.event_name == 'pull_request'
