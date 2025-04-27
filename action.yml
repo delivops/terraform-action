@@ -74,44 +74,44 @@ runs:
             owner: context.repo.owner,
             repo: context.repo.repo,
           });
-
-          const botComment = comments.find(comment => comment.user.type === "Bot" && comment.body.includes(`## Terraform ${environment}`));
-
+          
+          const botComment = comments.find(comment => comment.user.type === "Bot" && comment.body.includes('## Terraform ${environment}'));
+          
           const output = `## Terraform ${environment}
-          #### Terraform Format and Style 🖌 \`${{ steps.fmt.outcome }}\`
+          #### Terraform Format and Style 🖌 \`${{ steps.fmt-check.outcome }}\`
           #### Terraform Initialization ⚙️ \`${{ steps.init.outcome }}\`
           #### Terraform Validation 🤖 \`${{ steps.validate.outcome }}\`
           <details><summary>Validation Output</summary>
-
+          
           \`\`\`\n${{ steps.validate.outputs.stdout }}\`\`\`
-
+          
           </details>
-
+          
           #### Terraform Plan 📖 \`${{ steps.plan.outcome }}\`
-
+          
           <details><summary>Show Plan</summary>
-
-          \`\`\`\n${{ steps.plan.outputs.stdout }}\`\`\`
-
+          
+          \`\`\`${process.env.PLAN}\`\`\`
+          
           </details>
-
+          
           *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-
-                if (botComment) {
-                  await github.rest.issues.updateComment({
-                    comment_id: botComment.id,
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    body: output,
-                  });
-                } else {
-                  await github.rest.issues.createComment({
-                    issue_number: context.issue.number,
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    body: output,
-                  });
-                }
+          
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              comment_id: botComment.id,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output,
+            });
+          }
 
     - name: Fail if Plan Failed
       if: steps.plan.outcome == 'failure'
