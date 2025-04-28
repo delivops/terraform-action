@@ -128,6 +128,7 @@ runs:
       run: exit 1
 
     - name: Terraform Apply
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && && github.event_name == 'push'
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       run: terraform apply -auto-approve -input=false
