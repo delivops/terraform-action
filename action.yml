@@ -61,69 +61,109 @@ runs:
       shell: bash
       run: terraform validate -no-color
       working-directory: ${{ inputs.working_directory }}
+      continue-on-error: true
 
     - name: Terraform Plan
       id: plan
       shell: bash
-      run: terraform plan -no-color
+      run: terraform plan -no-color -input=false
       working-directory: ${{ inputs.working_directory }}
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' && steps.validate.outcome == 'success'
       continue-on-error: true      
 
     - uses: actions/github-script@v7
       if: github.event_name == 'pull_request'
       env:
-        PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
+        VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+        VALIDATE_OUTPUT: ${{ steps.validate.outputs.stdout }}
+        PLAN_OUTCOME: ${{ steps.plan.outcome }}
+        PLAN_OUTPUT: ${{ steps.plan.outputs.stdout }}
+        PLAN_ERROR: ${{ steps.plan.outputs.stderr }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        FMT_OUTCOME: ${{ steps.fmt.outcome }}
+        INIT_OUTCOME: ${{ steps.init.outcome }}
       with:
         github-token: ${{ inputs.github_token }}
         script: |
-          const environment = "${{ inputs.environment }}";
+          const environment = process.env.ENVIRONMENT;
+          
+          // Helper function to truncate long output
+          function truncateOutput(output, maxLines = 100) {
+            if (!output) return "No output available";
+            const lines = output.split('\n');
+            if (lines.length <= maxLines) return output;
+            
+            const truncated = lines.slice(-50).join('\n');
+            return "**⚠️ Output truncated due to length. [View full logs](" + process.env.GITHUB_SERVER_URL + "/" + process.env.GITHUB_REPOSITORY + "/actions/runs/" + process.env.GITHUB_RUN_ID + ").**\n\n... (" + (lines.length - 50) + " lines truncated) ...\n\n" + truncated;
+          }
+          
+          // Determine plan section based on outcomes
+          let planSection;
+          if (process.env.VALIDATE_OUTCOME === 'failure') {
+            const errorOutput = truncateOutput(process.env.VALIDATE_OUTPUT);
+            planSection = "#### Terraform Plan 📖 `skipped` ⏭️\n\n" +
+              "<details><summary>Validation Failed - Show Details</summary>\n\n" +
+              "```\n" + errorOutput + "\n```\n\n" +
+              "</details>\n\n" +
+              "> ❌ **Terraform validation failed!** Fix the errors above before merging.";
+          } else if (process.env.PLAN_OUTCOME === 'success') {
+            const planOutput = truncateOutput(process.env.PLAN_OUTPUT);
+            planSection = "#### Terraform Plan 📖 `success` ✅\n\n" +
+              "<details><summary>Show Plan</summary>\n\n" +
+              "```terraform\n" + planOutput + "\n```\n\n" +
+              "</details>";
+          } else if (process.env.PLAN_OUTCOME === 'failure') {
+            const errorOutput = truncateOutput(process.env.PLAN_ERROR || process.env.PLAN_OUTPUT);
+            planSection = "#### Terraform Plan 📖 `failure` ❌\n\n" +
+              "<details><summary>Plan Failed - Show Details</summary>\n\n" +
+              "```\n" + errorOutput + "\n```\n\n" +
+              "</details>\n\n" +
+              "> ❌ **Terraform plan failed!** Fix the errors above before merging.";
+          } else {
+            planSection = "#### Terraform Plan 📖 `skipped` ⏭️\n\n" +
+              "> Plan was skipped due to validation failure.";
+          }
+
+          // Build complete comment
+          const comment = "## Terraform " + environment + "\n" +
+            "#### Terraform Format and Style 🖌 `" + process.env.FMT_OUTCOME + "`\n" +
+            "#### Terraform Initialization ⚙️ `" + process.env.INIT_OUTCOME + "`\n" +
+            "#### Terraform Validation 🤖 `" + process.env.VALIDATE_OUTCOME + "`\n\n" +
+            "<details><summary>Validation Output</summary>\n\n" +
+            "```\n" + (process.env.VALIDATE_OUTPUT || 'No validation output') + "\n```\n\n" +
+            "</details>\n\n" +
+            planSection + "\n\n" +
+            "*Pushed by: @" + context.actor + ", Action: `" + context.eventName + "`*";
+
+          // Find existing comment or create new one
           const { data: comments } = await github.rest.issues.listComments({
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
           });
-    
-          const botComment = comments.find(comment => comment.body.includes(`## Terraform ${environment}`));
-    
-          const output = `## Terraform ${environment}
-          #### Terraform Format and Style 🖌 \`${{ steps.fmt.outcome }}\`
-          #### Terraform Initialization ⚙️ \`${{ steps.init.outcome }}\`
-          #### Terraform Validation 🤖 \`${{ steps.validate.outcome }}\`
-          <details><summary>Validation Output</summary>
-    
-          \`\`\`\n${{ steps.validate.outputs.stdout }}\`\`\`
-    
-          </details>
-    
-          #### Terraform Plan 📖 \`${{ steps.plan.outcome }}\`
-    
-          <details><summary>Show Plan</summary>
-    
-          \`\`\`${process.env.PLAN}\`\`\`
-    
-          </details>
-    
-          *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-    
+
+          const botComment = comments.find(comment => 
+            comment.body.includes("## Terraform " + environment)
+          );
+
           if (botComment) {
             await github.rest.issues.updateComment({
               comment_id: botComment.id,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output,
+              body: comment,
             });
           } else {
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output,
+              body: comment,
             });
           }
 
     - name: Fail if Plan Failed
-      if: steps.plan.outcome == 'failure'
+      if: steps.plan.outcome == 'failure' || steps.validate.outcome == 'failure'
       shell: bash
       run: exit 1
 
