@@ -86,22 +86,15 @@ runs:
         elif [[ "${{ steps.plan.outcome }}" == "success" ]]; then
           echo "PLAN_STATUS=success" >> "$GITHUB_OUTPUT"
           
-          # Create a temporary file to safely handle plan output
-          cat > /tmp/plan_output.txt << 'PLAN_EOF'
-${{ steps.plan.outputs.stdout }}
-PLAN_EOF
-          
-          # Count lines safely
-          TOTAL_LINES=$(wc -l < /tmp/plan_output.txt)
+          # Simple line count check for truncation
+          PLAN_OUTPUT='${{ steps.plan.outputs.stdout }}'
+          TOTAL_LINES=$(echo "$PLAN_OUTPUT" | wc -l)
           
           if [[ "$TOTAL_LINES" -gt 100 ]]; then
             echo "PLAN_TRUNCATED=true" >> "$GITHUB_OUTPUT"
           else
             echo "PLAN_TRUNCATED=false" >> "$GITHUB_OUTPUT"
           fi
-          
-          # Clean up
-          rm -f /tmp/plan_output.txt
           
         elif [[ "${{ steps.plan.outcome }}" == "failure" ]]; then
           echo "PLAN_STATUS=plan_failed" >> "$GITHUB_OUTPUT"
