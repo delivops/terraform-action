@@ -86,6 +86,7 @@ runs:
         github-token: ${{ inputs.github_token }}
         script: |
           const environment = process.env.ENVIRONMENT;
+          let hasLongOutput = false;
           
           // Helper function to truncate long output
           function truncateOutput(output, maxLines = 100) {
@@ -93,8 +94,9 @@ runs:
             const lines = output.split('\n');
             if (lines.length <= maxLines) return output;
             
+            hasLongOutput = true;
             const truncated = lines.slice(-50).join('\n');
-            return "**⚠️ Output truncated due to length. [View full logs](" + process.env.GITHUB_SERVER_URL + "/" + process.env.GITHUB_REPOSITORY + "/actions/runs/" + process.env.GITHUB_RUN_ID + ").**\n\n... (" + (lines.length - 50) + " lines truncated) ...\n\n" + truncated;
+            return "... (" + (lines.length - 50) + " lines truncated) ...\n\n" + truncated;
           }
           
           // Determine plan section based on outcomes
@@ -133,7 +135,8 @@ runs:
             "```\n" + (process.env.VALIDATE_OUTPUT || 'No validation output') + "\n```\n\n" +
             "</details>\n\n" +
             planSection + "\n\n" +
-            "*Pushed by: @" + context.actor + ", Action: `" + context.eventName + "`*";
+            "*Pushed by: @" + context.actor + ", Action: `" + context.eventName + "`*" +
+            (hasLongOutput ? "\n\n**⚠️ Output truncated due to length. [View full logs](" + process.env.GITHUB_SERVER_URL + "/" + process.env.GITHUB_REPOSITORY + "/actions/runs/" + process.env.GITHUB_RUN_ID + ").**" : "");
 
           // Find existing comment or create new one
           const { data: comments } = await github.rest.issues.listComments({
