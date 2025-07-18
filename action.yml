@@ -61,13 +61,14 @@ runs:
       shell: bash
       run: terraform validate -no-color
       working-directory: ${{ inputs.working_directory }}
+      continue-on-error: true
 
     - name: Terraform Plan
       id: plan
       shell: bash
       run: terraform plan -no-color
       working-directory: ${{ inputs.working_directory }}
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' && steps.validate.outcome == 'success'
       continue-on-error: true      
 
     - name: Process Plan Output
@@ -75,8 +76,18 @@ runs:
       if: github.event_name == 'pull_request'
       shell: bash
       run: |
+        # Check if validate failed first
+        if [ "${{ steps.validate.outcome }}" == "failure" ]; then
+          echo "PLAN_TRUNCATED=false" >> $GITHUB_OUTPUT
+          ERROR_OUTPUT="${{ steps.validate.outputs.stderr }}"
+          if [ -z "$ERROR_OUTPUT" ]; then
+            ERROR_OUTPUT="${{ steps.validate.outputs.stdout }}"
+          fi
+          PROCESSED_PLAN="**❌ Terraform Validation Failed**
+
+        $ERROR_OUTPUT"
         # Check if plan succeeded or failed
-        if [ "${{ steps.plan.outcome }}" == "success" ]; then
+        elif [ "${{ steps.plan.outcome }}" == "success" ]; then
           # Get the plan output
           PLAN_OUTPUT="${{ steps.plan.outputs.stdout }}"
           
@@ -103,7 +114,7 @@ runs:
             echo "PLAN_TRUNCATED=false" >> $GITHUB_OUTPUT
             PROCESSED_PLAN="$PLAN_OUTPUT"
           fi
-        else
+        elif [ "${{ steps.plan.outcome }}" == "failure" ]; then
           # Plan failed, show the error
           echo "PLAN_TRUNCATED=false" >> $GITHUB_OUTPUT
           ERROR_OUTPUT="${{ steps.plan.outputs.stderr }}"
@@ -113,6 +124,12 @@ runs:
           PROCESSED_PLAN="**❌ Terraform Plan Failed**
 
         $ERROR_OUTPUT"
+        else
+          # Plan was skipped due to validation failure
+          echo "PLAN_TRUNCATED=false" >> $GITHUB_OUTPUT
+          PROCESSED_PLAN="**⏭️ Terraform Plan Skipped**
+
+        Plan was skipped because validation failed."
         fi
         
         # Save processed plan to output (use base64 to handle special characters)
@@ -126,6 +143,7 @@ runs:
           const environment = "${{ inputs.environment }}";
           const planTruncated = "${{ steps.process_plan.outputs.PLAN_TRUNCATED }}" === "true";
           const processedPlan = Buffer.from("${{ steps.process_plan.outputs.PROCESSED_PLAN }}", 'base64').toString('utf-8');
+          const validateOutcome = "${{ steps.validate.outcome }}";
           const planOutcome = "${{ steps.plan.outcome }}";
           
           const { data: comments } = await github.rest.issues.listComments({
@@ -137,7 +155,14 @@ runs:
           const botComment = comments.find(comment => comment.body.includes(`## Terraform ${environment}`));
           
           let planSection;
-          if (planOutcome === "success") {
+          if (validateOutcome === "failure") {
+            planSection = "#### Terraform Plan 📖 `skipped` ⏭️\n\n" +
+              "<details><summary>Show Validation Error Details</summary>\n\n" +
+              "```\n" + processedPlan + "\n```\n\n" +
+              "</details>\n\n" +
+              "> ⚠️ **Terraform validation failed!** Please fix the configuration errors above before merging.\n\n" +
+              "> 📋 **View full logs**: Check the \"Terraform Validate\" step in the [job logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for complete details.";
+          } else if (planOutcome === "success") {
             planSection = "#### Terraform Plan 📖 `${{ steps.plan.outcome }}`\n\n" +
               "<details><summary>Show Plan</summary>\n\n" +
               "```terraform\n" + processedPlan + "\n```\n\n" +
@@ -148,13 +173,16 @@ runs:
                 "To view the complete plan output, check the \"Terraform Plan\" step in the " +
                 "[job logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).";
             }
-          } else {
+          } else if (planOutcome === "failure") {
             planSection = "#### Terraform Plan 📖 `${{ steps.plan.outcome }}` ❌\n\n" +
               "<details><summary>Show Error Details</summary>\n\n" +
               "```\n" + processedPlan + "\n```\n\n" +
               "</details>\n\n" +
               "> ⚠️ **Terraform plan failed!** Please fix the configuration errors above before merging.\n\n" +
               "> 📋 **View full logs**: Check the \"Terraform Plan\" step in the [job logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for complete details.";
+          } else {
+            planSection = "#### Terraform Plan 📖 `skipped` ⏭️\n\n" +
+              "> Plan was skipped due to validation failure.";
           }
     
           const output = "## Terraform " + environment + "\n" +
@@ -184,7 +212,7 @@ runs:
           }
 
     - name: Fail if Plan Failed
-      if: steps.plan.outcome == 'failure'
+      if: steps.plan.outcome == 'failure' || steps.validate.outcome == 'failure'
       shell: bash
       run: exit 1
 
