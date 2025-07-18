@@ -70,14 +70,50 @@ runs:
       if: github.event_name == 'pull_request'
       continue-on-error: true      
 
+    - name: Process Plan Output
+      id: process_plan
+      if: github.event_name == 'pull_request'
+      shell: bash
+      run: |
+        # Get the plan output
+        PLAN_OUTPUT="${{ steps.plan.outputs.stdout }}"
+        
+        # Set maximum lines for truncated output (keeping summary visible)
+        MAX_LINES=100
+        
+        # Count total lines in plan
+        TOTAL_LINES=$(echo "$PLAN_OUTPUT" | wc -l)
+        
+        if [ "$TOTAL_LINES" -gt "$MAX_LINES" ]; then
+          # Plan is too long, truncate from the top but keep the summary
+          echo "PLAN_TRUNCATED=true" >> $GITHUB_OUTPUT
+          
+          # Get the last 50 lines (which typically contain the summary)
+          TRUNCATED_PLAN=$(echo "$PLAN_OUTPUT" | tail -n 50)
+          
+          # Create truncated plan with notice
+          PROCESSED_PLAN="**⚠️ Plan output was truncated due to length. View the complete plan in the job logs.**
+
+        ... (output truncated) ...
+
+        $TRUNCATED_PLAN"
+        else
+          echo "PLAN_TRUNCATED=false" >> $GITHUB_OUTPUT
+          PROCESSED_PLAN="$PLAN_OUTPUT"
+        fi
+        
+        # Save processed plan to output (use base64 to handle special characters)
+        echo "PROCESSED_PLAN=$(echo "$PROCESSED_PLAN" | base64 -w 0)" >> $GITHUB_OUTPUT
+
     - uses: actions/github-script@v7
       if: github.event_name == 'pull_request'
-      env:
-        PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
       with:
         github-token: ${{ inputs.github_token }}
         script: |
           const environment = "${{ inputs.environment }}";
+          const planTruncated = "${{ steps.process_plan.outputs.PLAN_TRUNCATED }}" === "true";
+          const processedPlan = Buffer.from("${{ steps.process_plan.outputs.PROCESSED_PLAN }}", 'base64').toString('utf-8');
+          
           const { data: comments } = await github.rest.issues.listComments({
             issue_number: context.issue.number,
             owner: context.repo.owner,
@@ -85,6 +121,22 @@ runs:
           });
     
           const botComment = comments.find(comment => comment.body.includes(`## Terraform ${environment}`));
+          
+          let planSection = `#### Terraform Plan 📖 \`${{ steps.plan.outcome }}\`
+
+          <details><summary>Show Plan</summary>
+
+          \`\`\`terraform
+${processedPlan}
+          \`\`\`
+
+          </details>`;
+          
+          if (planTruncated) {
+            planSection += `
+          
+          > 💡 **Tip**: The plan output was truncated due to its length. To view the complete plan output, check the "Terraform Plan" step in the [job logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).`;
+          }
     
           const output = `## Terraform ${environment}
           #### Terraform Format and Style 🖌 \`${{ steps.fmt.outcome }}\`
@@ -96,13 +148,7 @@ runs:
     
           </details>
     
-          #### Terraform Plan 📖 \`${{ steps.plan.outcome }}\`
-    
-          <details><summary>Show Plan</summary>
-    
-          \`\`\`${process.env.PLAN}\`\`\`
-    
-          </details>
+          ${planSection}
     
           *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
     
