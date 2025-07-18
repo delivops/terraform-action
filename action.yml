@@ -105,12 +105,28 @@ runs:
 
     - uses: actions/github-script@v7
       if: github.event_name == 'pull_request'
+      env:
+        PLAN_STATUS: ${{ steps.process_plan.outputs.PLAN_STATUS }}
+        PLAN_TRUNCATED: ${{ steps.process_plan.outputs.PLAN_TRUNCATED }}
+        VALIDATE_STDOUT: ${{ steps.validate.outputs.stdout }}
+        VALIDATE_STDERR: ${{ steps.validate.outputs.stderr }}
+        PLAN_STDOUT: ${{ steps.plan.outputs.stdout }}
+        PLAN_STDERR: ${{ steps.plan.outputs.stderr }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        FMT_OUTCOME: ${{ steps.fmt.outcome }}
+        INIT_OUTCOME: ${{ steps.init.outcome }}
+        VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+        GITHUB_ACTOR: ${{ github.actor }}
+        GITHUB_EVENT_NAME: ${{ github.event_name }}
+        GITHUB_SERVER_URL: ${{ github.server_url }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
       with:
         github-token: ${{ inputs.github_token }}
         script: |
-          const environment = "${{ inputs.environment }}";
-          const planTruncated = "${{ steps.process_plan.outputs.PLAN_TRUNCATED }}" === "true";
-          const planStatus = "${{ steps.process_plan.outputs.PLAN_STATUS }}";
+          const environment = process.env.ENVIRONMENT;
+          const planTruncated = process.env.PLAN_TRUNCATED === "true";
+          const planStatus = process.env.PLAN_STATUS;
           
           const { data: comments } = await github.rest.issues.listComments({
             issue_number: context.issue.number,
@@ -123,21 +139,22 @@ runs:
           let planSection;
           
           if (planStatus === "validate_failed") {
-            const validateError = `${{ steps.validate.outputs.stderr }}` || `${{ steps.validate.outputs.stdout }}`;
+            const validateError = process.env.VALIDATE_STDERR || process.env.VALIDATE_STDOUT || "No error details available";
             planSection = "#### Terraform Plan 📖 `skipped` ⏭️\n\n" +
               "<details><summary>Show Validation Error Details</summary>\n\n" +
               "```\n" + validateError + "\n```\n\n" +
               "</details>\n\n" +
               "> ⚠️ **Terraform validation failed!** Please fix the configuration errors above before merging.\n\n" +
-              "> 📋 **View full logs**: Check the \"Terraform Validate\" step in the [job logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for complete details.";
+              "> 📋 **View full logs**: Check the \"Terraform Validate\" step in the [job logs](" + process.env.GITHUB_SERVER_URL + "/" + process.env.GITHUB_REPOSITORY + "/actions/runs/" + process.env.GITHUB_RUN_ID + ") for complete details.";
           } else if (planStatus === "success") {
-            const planOutput = `${{ steps.plan.outputs.stdout }}`;
+            const planOutput = process.env.PLAN_STDOUT || "No plan output available";
             let displayPlan = planOutput;
             
             if (planTruncated) {
               // For truncated plans, show truncation notice and link to logs
-              displayPlan = "**⚠️ Plan output was truncated due to length. View the complete plan in the job logs.**\n\n... (output truncated) ...\n\n" + 
-                planOutput.split('\n').slice(-50).join('\n');
+              const lines = planOutput.split('\n');
+              const lastLines = lines.slice(-50).join('\n');
+              displayPlan = "**⚠️ Plan output was truncated due to length. View the complete plan in the job logs.**\n\n... (output truncated) ...\n\n" + lastLines;
             }
             
             planSection = "#### Terraform Plan 📖 `success` ✅\n\n" +
@@ -148,30 +165,30 @@ runs:
             if (planTruncated) {
               planSection += "\n\n> 💡 **Tip**: The plan output was truncated due to its length. " +
                 "To view the complete plan output, check the \"Terraform Plan\" step in the " +
-                "[job logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).";
+                "[job logs](" + process.env.GITHUB_SERVER_URL + "/" + process.env.GITHUB_REPOSITORY + "/actions/runs/" + process.env.GITHUB_RUN_ID + ").";
             }
           } else if (planStatus === "plan_failed") {
-            const planError = `${{ steps.plan.outputs.stderr }}` || `${{ steps.plan.outputs.stdout }}`;
+            const planError = process.env.PLAN_STDERR || process.env.PLAN_STDOUT || "No error details available";
             planSection = "#### Terraform Plan 📖 `failure` ❌\n\n" +
               "<details><summary>Show Error Details</summary>\n\n" +
               "```\n" + planError + "\n```\n\n" +
               "</details>\n\n" +
               "> ⚠️ **Terraform plan failed!** Please fix the configuration errors above before merging.\n\n" +
-              "> 📋 **View full logs**: Check the \"Terraform Plan\" step in the [job logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for complete details.";
+              "> 📋 **View full logs**: Check the \"Terraform Plan\" step in the [job logs](" + process.env.GITHUB_SERVER_URL + "/" + process.env.GITHUB_REPOSITORY + "/actions/runs/" + process.env.GITHUB_RUN_ID + ") for complete details.";
           } else {
             planSection = "#### Terraform Plan 📖 `skipped` ⏭️\n\n" +
               "> Plan was skipped due to validation failure.";
           }
     
           const output = "## Terraform " + environment + "\n" +
-            "#### Terraform Format and Style 🖌 `${{ steps.fmt.outcome }}`\n" +
-            "#### Terraform Initialization ⚙️ `${{ steps.init.outcome }}`\n" +
-            "#### Terraform Validation 🤖 `${{ steps.validate.outcome }}`\n" +
+            "#### Terraform Format and Style 🖌 `" + process.env.FMT_OUTCOME + "`\n" +
+            "#### Terraform Initialization ⚙️ `" + process.env.INIT_OUTCOME + "`\n" +
+            "#### Terraform Validation 🤖 `" + process.env.VALIDATE_OUTCOME + "`\n" +
             "<details><summary>Validation Output</summary>\n\n" +
-            "```\n${{ steps.validate.outputs.stdout }}```\n\n" +
+            "```\n" + (process.env.VALIDATE_STDOUT || "No validation output") + "```\n\n" +
             "</details>\n\n" +
             planSection + "\n\n" +
-            "*Pushed by: @${{ github.actor }}, Action: `${{ github.event_name }}`*";
+            "*Pushed by: @" + process.env.GITHUB_ACTOR + ", Action: `" + process.env.GITHUB_EVENT_NAME + "`*";
     
           if (botComment) {
             await github.rest.issues.updateComment({
