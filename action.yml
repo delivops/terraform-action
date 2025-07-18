@@ -122,35 +122,26 @@ runs:
     
           const botComment = comments.find(comment => comment.body.includes(`## Terraform ${environment}`));
           
-          let planSection = `#### Terraform Plan 📖 \`${{ steps.plan.outcome }}\`
-
-          <details><summary>Show Plan</summary>
-
-          \`\`\`terraform
-${processedPlan}
-          \`\`\`
-
-          </details>`;
+          let planSection = "#### Terraform Plan 📖 `${{ steps.plan.outcome }}`\n\n" +
+            "<details><summary>Show Plan</summary>\n\n" +
+            "```terraform\n" + processedPlan + "\n```\n\n" +
+            "</details>";
           
           if (planTruncated) {
-            planSection += `
-          
-          > 💡 **Tip**: The plan output was truncated due to its length. To view the complete plan output, check the "Terraform Plan" step in the [job logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).`;
+            planSection += "\n\n> 💡 **Tip**: The plan output was truncated due to its length. " +
+              "To view the complete plan output, check the \"Terraform Plan\" step in the " +
+              "[job logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).";
           }
     
-          const output = `## Terraform ${environment}
-          #### Terraform Format and Style 🖌 \`${{ steps.fmt.outcome }}\`
-          #### Terraform Initialization ⚙️ \`${{ steps.init.outcome }}\`
-          #### Terraform Validation 🤖 \`${{ steps.validate.outcome }}\`
-          <details><summary>Validation Output</summary>
-    
-          \`\`\`\n${{ steps.validate.outputs.stdout }}\`\`\`
-    
-          </details>
-    
-          ${planSection}
-    
-          *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+          const output = "## Terraform " + environment + "\n" +
+            "#### Terraform Format and Style 🖌 `${{ steps.fmt.outcome }}`\n" +
+            "#### Terraform Initialization ⚙️ `${{ steps.init.outcome }}`\n" +
+            "#### Terraform Validation 🤖 `${{ steps.validate.outcome }}`\n" +
+            "<details><summary>Validation Output</summary>\n\n" +
+            "```\n${{ steps.validate.outputs.stdout }}```\n\n" +
+            "</details>\n\n" +
+            planSection + "\n\n" +
+            "*Pushed by: @${{ github.actor }}, Action: `${{ github.event_name }}`*";
     
           if (botComment) {
             await github.rest.issues.updateComment({
