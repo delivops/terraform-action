@@ -66,7 +66,7 @@ runs:
     - name: Terraform Plan
       id: plan
       shell: bash
-      run: terraform plan -no-color
+      run: terraform plan -no-color -input=false
       working-directory: ${{ inputs.working_directory }}
       if: github.event_name == 'pull_request' && steps.validate.outcome == 'success'
       continue-on-error: true      
