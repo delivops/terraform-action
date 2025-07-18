@@ -92,11 +92,36 @@ runs:
           function truncateOutput(output, maxLines = 100) {
             if (!output) return "No output available";
             const lines = output.split('\n');
-            if (lines.length <= maxLines) return output;
+            
+            // Find where the actual plan starts - exclude everything before these key lines
+            const planStartIndicators = [
+              'Note: Objects have changed outside of Terraform',
+              'Terraform will perform the following actions:',
+              'No changes. Your infrastructure matches the configuration.',
+              'Planning failed. Terraform encountered an error while generating this plan.',
+              'Plan:',
+              'Changes to Outputs:'
+            ];
+            
+            let planStartIndex = -1;
+            for (let i = 0; i < lines.length; i++) {
+              if (planStartIndicators.some(indicator => lines[i].includes(indicator))) {
+                planStartIndex = i;
+                break;
+              }
+            }
+            
+            // If we found a plan start, use everything from that point forward
+            // Otherwise, fall back to original output
+            const relevantLines = planStartIndex >= 0 ? lines.slice(planStartIndex) : lines;
+            
+            if (relevantLines.length <= maxLines) {
+              return relevantLines.join('\n');
+            }
             
             hasLongOutput = true;
-            const truncated = lines.slice(-50).join('\n');
-            return "... (" + (lines.length - 50) + " lines truncated) ...\n\n" + truncated;
+            const truncated = relevantLines.slice(-50).join('\n');
+            return "... (" + (relevantLines.length - 50) + " lines truncated) ...\n\n" + truncated;
           }
           
           // Determine plan section based on outcomes
