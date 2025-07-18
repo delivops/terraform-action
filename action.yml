@@ -78,62 +78,30 @@ runs:
       run: |
         # Check if validate failed first
         if [ "${{ steps.validate.outcome }}" == "failure" ]; then
+          echo "PLAN_STATUS=validate_failed" >> $GITHUB_OUTPUT
           echo "PLAN_TRUNCATED=false" >> $GITHUB_OUTPUT
-          ERROR_OUTPUT="${{ steps.validate.outputs.stderr }}"
-          if [ -z "$ERROR_OUTPUT" ]; then
-            ERROR_OUTPUT="${{ steps.validate.outputs.stdout }}"
-          fi
-          PROCESSED_PLAN="**❌ Terraform Validation Failed**
-
-        $ERROR_OUTPUT"
         # Check if plan succeeded or failed
         elif [ "${{ steps.plan.outcome }}" == "success" ]; then
-          # Get the plan output
+          echo "PLAN_STATUS=success" >> $GITHUB_OUTPUT
+          # Get the plan output and check length
           PLAN_OUTPUT="${{ steps.plan.outputs.stdout }}"
-          
-          # Set maximum lines for truncated output (keeping summary visible)
-          MAX_LINES=100
-          
-          # Count total lines in plan
           TOTAL_LINES=$(echo "$PLAN_OUTPUT" | wc -l)
           
-          if [ "$TOTAL_LINES" -gt "$MAX_LINES" ]; then
-            # Plan is too long, truncate from the top but keep the summary
+          if [ "$TOTAL_LINES" -gt "100" ]; then
             echo "PLAN_TRUNCATED=true" >> $GITHUB_OUTPUT
-            
-            # Get the last 50 lines (which typically contain the summary)
-            TRUNCATED_PLAN=$(echo "$PLAN_OUTPUT" | tail -n 50)
-            
-            # Create truncated plan with notice
-            PROCESSED_PLAN="**⚠️ Plan output was truncated due to length. View the complete plan in the job logs.**
-
-        ... (output truncated) ...
-
-        $TRUNCATED_PLAN"
+            # Get the last 50 lines for summary
+            echo "$PLAN_OUTPUT" | tail -n 50 > /tmp/truncated_plan.txt
           else
             echo "PLAN_TRUNCATED=false" >> $GITHUB_OUTPUT
-            PROCESSED_PLAN="$PLAN_OUTPUT"
+            echo "$PLAN_OUTPUT" > /tmp/full_plan.txt
           fi
         elif [ "${{ steps.plan.outcome }}" == "failure" ]; then
-          # Plan failed, show the error
+          echo "PLAN_STATUS=plan_failed" >> $GITHUB_OUTPUT
           echo "PLAN_TRUNCATED=false" >> $GITHUB_OUTPUT
-          ERROR_OUTPUT="${{ steps.plan.outputs.stderr }}"
-          if [ -z "$ERROR_OUTPUT" ]; then
-            ERROR_OUTPUT="${{ steps.plan.outputs.stdout }}"
-          fi
-          PROCESSED_PLAN="**❌ Terraform Plan Failed**
-
-        $ERROR_OUTPUT"
         else
-          # Plan was skipped due to validation failure
+          echo "PLAN_STATUS=skipped" >> $GITHUB_OUTPUT
           echo "PLAN_TRUNCATED=false" >> $GITHUB_OUTPUT
-          PROCESSED_PLAN="**⏭️ Terraform Plan Skipped**
-
-        Plan was skipped because validation failed."
         fi
-        
-        # Save processed plan to output (use base64 to handle special characters)
-        echo "PROCESSED_PLAN=$(echo "$PROCESSED_PLAN" | base64 -w 0)" >> $GITHUB_OUTPUT
 
     - uses: actions/github-script@v7
       if: github.event_name == 'pull_request'
@@ -142,9 +110,7 @@ runs:
         script: |
           const environment = "${{ inputs.environment }}";
           const planTruncated = "${{ steps.process_plan.outputs.PLAN_TRUNCATED }}" === "true";
-          const processedPlan = Buffer.from("${{ steps.process_plan.outputs.PROCESSED_PLAN }}", 'base64').toString('utf-8');
-          const validateOutcome = "${{ steps.validate.outcome }}";
-          const planOutcome = "${{ steps.plan.outcome }}";
+          const planStatus = "${{ steps.process_plan.outputs.PLAN_STATUS }}";
           
           const { data: comments } = await github.rest.issues.listComments({
             issue_number: context.issue.number,
@@ -155,17 +121,28 @@ runs:
           const botComment = comments.find(comment => comment.body.includes(`## Terraform ${environment}`));
           
           let planSection;
-          if (validateOutcome === "failure") {
+          
+          if (planStatus === "validate_failed") {
+            const validateError = `${{ steps.validate.outputs.stderr }}` || `${{ steps.validate.outputs.stdout }}`;
             planSection = "#### Terraform Plan 📖 `skipped` ⏭️\n\n" +
               "<details><summary>Show Validation Error Details</summary>\n\n" +
-              "```\n" + processedPlan + "\n```\n\n" +
+              "```\n" + validateError + "\n```\n\n" +
               "</details>\n\n" +
               "> ⚠️ **Terraform validation failed!** Please fix the configuration errors above before merging.\n\n" +
               "> 📋 **View full logs**: Check the \"Terraform Validate\" step in the [job logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for complete details.";
-          } else if (planOutcome === "success") {
-            planSection = "#### Terraform Plan 📖 `${{ steps.plan.outcome }}`\n\n" +
+          } else if (planStatus === "success") {
+            const planOutput = `${{ steps.plan.outputs.stdout }}`;
+            let displayPlan = planOutput;
+            
+            if (planTruncated) {
+              // For truncated plans, show truncation notice and link to logs
+              displayPlan = "**⚠️ Plan output was truncated due to length. View the complete plan in the job logs.**\n\n... (output truncated) ...\n\n" + 
+                planOutput.split('\n').slice(-50).join('\n');
+            }
+            
+            planSection = "#### Terraform Plan 📖 `success` ✅\n\n" +
               "<details><summary>Show Plan</summary>\n\n" +
-              "```terraform\n" + processedPlan + "\n```\n\n" +
+              "```terraform\n" + displayPlan + "\n```\n\n" +
               "</details>";
             
             if (planTruncated) {
@@ -173,10 +150,11 @@ runs:
                 "To view the complete plan output, check the \"Terraform Plan\" step in the " +
                 "[job logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).";
             }
-          } else if (planOutcome === "failure") {
-            planSection = "#### Terraform Plan 📖 `${{ steps.plan.outcome }}` ❌\n\n" +
+          } else if (planStatus === "plan_failed") {
+            const planError = `${{ steps.plan.outputs.stderr }}` || `${{ steps.plan.outputs.stdout }}`;
+            planSection = "#### Terraform Plan 📖 `failure` ❌\n\n" +
               "<details><summary>Show Error Details</summary>\n\n" +
-              "```\n" + processedPlan + "\n```\n\n" +
+              "```\n" + planError + "\n```\n\n" +
               "</details>\n\n" +
               "> ⚠️ **Terraform plan failed!** Please fix the configuration errors above before merging.\n\n" +
               "> 📋 **View full logs**: Check the \"Terraform Plan\" step in the [job logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for complete details.";
