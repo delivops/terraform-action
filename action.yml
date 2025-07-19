@@ -157,7 +157,7 @@ runs:
             "#### Terraform Initialization ⚙️ `" + process.env.INIT_OUTCOME + "`\n" +
             "#### Terraform Validation 🤖 `" + process.env.VALIDATE_OUTCOME + "`\n\n" +
             "<details><summary>Validation Output</summary>\n\n" +
-            "```\n" + (process.env.VALIDATE_OUTPUT || 'No validation output') + "\n```\n\n" +
+            "```\n" + truncateOutput(process.env.VALIDATE_OUTPUT || 'No validation output') + "\n```\n\n" +
             "</details>\n\n" +
             planSection + "\n\n" +
             "*Pushed by: @" + context.actor + ", Action: `" + context.eventName + "`*" +
