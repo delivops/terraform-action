@@ -71,76 +71,112 @@ runs:
       if: github.event_name == 'pull_request' && steps.validate.outcome == 'success'
       continue-on-error: true      
 
+    - name: Process Terraform Outputs
+      id: process_outputs
+      if: github.event_name == 'pull_request'
+      shell: bash
+      run: |
+        # Function to truncate and filter terraform output
+        process_terraform_output() {
+          local input="$1"
+          local max_lines=100
+          
+          if [ -z "$input" ] || [ "$input" = "null" ]; then
+            echo "No output available"
+            return
+          fi
+          
+          # Find where the actual plan starts
+          local filtered_output=""
+          local found_start=false
+          
+          while IFS= read -r line; do
+            if [[ "$line" == *"Note: Objects have changed outside of Terraform"* ]] || \
+               [[ "$line" == *"Terraform will perform the following actions:"* ]] || \
+               [[ "$line" == *"No changes. Your infrastructure matches the configuration."* ]] || \
+               [[ "$line" == *"Planning failed. Terraform encountered an error while generating this plan."* ]] || \
+               [[ "$line" == *"Plan:"* ]] || \
+               [[ "$line" == *"Changes to Outputs:"* ]]; then
+              found_start=true
+            fi
+            
+            if [ "$found_start" = true ]; then
+              if [ -z "$filtered_output" ]; then
+                filtered_output="$line"
+              else
+                filtered_output="$filtered_output"$'\n'"$line"
+              fi
+            fi
+          done <<< "$input"
+          
+          # If no plan start found, use original (but still truncate)
+          if [ "$found_start" = false ]; then
+            filtered_output="$input"
+          fi
+          
+          # Count lines and truncate if needed
+          local line_count=$(echo "$filtered_output" | wc -l)
+          if [ "$line_count" -gt "$max_lines" ]; then
+            echo "... ($((line_count - 50)) lines truncated) ..."
+            echo ""
+            echo "$filtered_output" | tail -50
+            echo "TRUNCATED=true" >> $GITHUB_OUTPUT
+          else
+            echo "$filtered_output"
+          fi
+        }
+        
+        # Process validate output
+        validate_output=$(process_terraform_output "${{ steps.validate.outputs.stdout }}")
+        echo "PROCESSED_VALIDATE_OUTPUT<<EOF" >> $GITHUB_OUTPUT
+        echo "$validate_output" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        
+        # Process plan output
+        plan_output=$(process_terraform_output "${{ steps.plan.outputs.stdout }}")
+        echo "PROCESSED_PLAN_OUTPUT<<EOF" >> $GITHUB_OUTPUT
+        echo "$plan_output" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        
+        # Process plan error
+        plan_error=$(process_terraform_output "${{ steps.plan.outputs.stderr }}")
+        echo "PROCESSED_PLAN_ERROR<<EOF" >> $GITHUB_OUTPUT
+        echo "$plan_error" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - uses: actions/github-script@v7
       if: github.event_name == 'pull_request'
       env:
         VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
-        VALIDATE_OUTPUT: ${{ steps.validate.outputs.stdout }}
+        VALIDATE_OUTPUT: ${{ steps.process_outputs.outputs.PROCESSED_VALIDATE_OUTPUT }}
         PLAN_OUTCOME: ${{ steps.plan.outcome }}
-        PLAN_OUTPUT: ${{ steps.plan.outputs.stdout }}
-        PLAN_ERROR: ${{ steps.plan.outputs.stderr }}
+        PLAN_OUTPUT: ${{ steps.process_outputs.outputs.PROCESSED_PLAN_OUTPUT }}
+        PLAN_ERROR: ${{ steps.process_outputs.outputs.PROCESSED_PLAN_ERROR }}
         ENVIRONMENT: ${{ inputs.environment }}
         FMT_OUTCOME: ${{ steps.fmt.outcome }}
         INIT_OUTCOME: ${{ steps.init.outcome }}
+        HAS_TRUNCATION: ${{ steps.process_outputs.outputs.TRUNCATED }}
       with:
         github-token: ${{ inputs.github_token }}
         script: |
           const environment = process.env.ENVIRONMENT;
-          let hasLongOutput = false;
-          
-          // Helper function to truncate long output
-          function truncateOutput(output, maxLines = 100) {
-            if (!output) return "No output available";
-            const lines = output.split('\n');
-            
-            // Find where the actual plan starts - exclude everything before these key lines
-            const planStartIndicators = [
-              'Note: Objects have changed outside of Terraform',
-              'Terraform will perform the following actions:',
-              'No changes. Your infrastructure matches the configuration.',
-              'Planning failed. Terraform encountered an error while generating this plan.',
-              'Plan:',
-              'Changes to Outputs:'
-            ];
-            
-            let planStartIndex = -1;
-            for (let i = 0; i < lines.length; i++) {
-              if (planStartIndicators.some(indicator => lines[i].includes(indicator))) {
-                planStartIndex = i;
-                break;
-              }
-            }
-            
-            // If we found a plan start, use everything from that point forward
-            // Otherwise, fall back to original output
-            const relevantLines = planStartIndex >= 0 ? lines.slice(planStartIndex) : lines;
-            
-            if (relevantLines.length <= maxLines) {
-              return relevantLines.join('\n');
-            }
-            
-            hasLongOutput = true;
-            const truncated = relevantLines.slice(-50).join('\n');
-            return "... (" + (relevantLines.length - 50) + " lines truncated) ...\n\n" + truncated;
-          }
+          const hasTruncation = process.env.HAS_TRUNCATION === 'true';
           
           // Determine plan section based on outcomes
           let planSection;
           if (process.env.VALIDATE_OUTCOME === 'failure') {
-            const errorOutput = truncateOutput(process.env.VALIDATE_OUTPUT);
             planSection = "#### Terraform Plan 📖 `skipped` ⏭️\n\n" +
               "<details><summary>Validation Failed - Show Details</summary>\n\n" +
-              "```\n" + errorOutput + "\n```\n\n" +
+              "```\n" + (process.env.VALIDATE_OUTPUT || 'No validation output') + "\n```\n\n" +
               "</details>\n\n" +
               "> ❌ **Terraform validation failed!** Fix the errors above before merging.";
           } else if (process.env.PLAN_OUTCOME === 'success') {
-            const planOutput = truncateOutput(process.env.PLAN_OUTPUT);
             planSection = "#### Terraform Plan 📖 `success` ✅\n\n" +
               "<details><summary>Show Plan</summary>\n\n" +
-              "```terraform\n" + planOutput + "\n```\n\n" +
+              "```terraform\n" + (process.env.PLAN_OUTPUT || 'No plan output') + "\n```\n\n" +
               "</details>";
           } else if (process.env.PLAN_OUTCOME === 'failure') {
-            const errorOutput = truncateOutput(process.env.PLAN_ERROR || process.env.PLAN_OUTPUT);
+            const errorOutput = process.env.PLAN_ERROR || process.env.PLAN_OUTPUT || 'No error output';
             planSection = "#### Terraform Plan 📖 `failure` ❌\n\n" +
               "<details><summary>Plan Failed - Show Details</summary>\n\n" +
               "```\n" + errorOutput + "\n```\n\n" +
@@ -157,11 +193,11 @@ runs:
             "#### Terraform Initialization ⚙️ `" + process.env.INIT_OUTCOME + "`\n" +
             "#### Terraform Validation 🤖 `" + process.env.VALIDATE_OUTCOME + "`\n\n" +
             "<details><summary>Validation Output</summary>\n\n" +
-            "```\n" + truncateOutput(process.env.VALIDATE_OUTPUT || 'No validation output') + "\n```\n\n" +
+            "```\n" + (process.env.VALIDATE_OUTPUT || 'No validation output') + "\n```\n\n" +
             "</details>\n\n" +
             planSection + "\n\n" +
             "*Pushed by: @" + context.actor + ", Action: `" + context.eventName + "`*" +
-            (hasLongOutput ? "\n\n**⚠️ Output truncated due to length. [View full logs](" + process.env.GITHUB_SERVER_URL + "/" + process.env.GITHUB_REPOSITORY + "/actions/runs/" + process.env.GITHUB_RUN_ID + ").**" : "");
+            (hasTruncation ? "\n\n**⚠️ Output truncated due to length. [View full logs](" + process.env.GITHUB_SERVER_URL + "/" + process.env.GITHUB_REPOSITORY + "/actions/runs/" + process.env.GITHUB_RUN_ID + ").**" : "");
 
           // Find existing comment or create new one
           const { data: comments } = await github.rest.issues.listComments({
