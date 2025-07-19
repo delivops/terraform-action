@@ -117,7 +117,7 @@ runs:
             const relevant = idx >= 0 ? lines.slice(idx) : lines;
             if (relevant.length > 100) {
               hasTruncation = true;
-              return `... (${relevant.length - 50} lines truncated) ...\n\n${relevant.slice(-50).join('\n')}`;
+              return `... (${relevant.length - 100} lines truncated) ...\n\n${relevant.slice(-100).join('\n')}`;
             }
             return relevant.join('\n');
           }
@@ -128,7 +128,7 @@ runs:
           if (process.env.VALIDATE_OUTCOME === 'failure') {
             planSection = `#### Terraform Plan 📖 \`skipped\` ⏭️\n\n<details><summary>Validation Failed - Show Details</summary>\n\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform validation failed!** Fix the errors above before merging.`;
           } else if (process.env.PLAN_OUTCOME === 'success') {
-            planSection = `#### Terraform Plan 📖 \`success\` ✅\n\n<details><summary>Show Plan</summary>\n\n\n\`\`terraform\n${planOutput}\n\`\`\`\n\n</details>`;
+            planSection = `#### Terraform Plan 📖 \`success\` ✅\n\n<details><summary>Show Plan</summary>\n\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n\n</details>`;
           } else if (process.env.PLAN_OUTCOME === 'failure') {
             planSection = `#### Terraform Plan 📖 \`failure\` ❌\n\n<details><summary>Plan Failed - Show Details</summary>\n\n\n\`\`\`\n${planOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform plan failed!** Fix the errors above before merging.`;
           } else {
