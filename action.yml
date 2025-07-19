@@ -86,6 +86,10 @@ runs:
             return
           fi
           
+          # Create temp file to avoid issues with special characters
+          local temp_file=$(mktemp)
+          echo "$input" > "$temp_file"
+          
           # Find where the actual plan starts
           local filtered_output=""
           local found_start=false
@@ -107,7 +111,7 @@ runs:
                 filtered_output="$filtered_output"$'\n'"$line"
               fi
             fi
-          done <<< "$input"
+          done < "$temp_file"
           
           # If no plan start found, use original (but still truncate)
           if [ "$found_start" = false ]; then
@@ -115,34 +119,46 @@ runs:
           fi
           
           # Count lines and truncate if needed
-          local line_count=$(echo "$filtered_output" | wc -l)
+          local line_count
+          line_count=$(echo "$filtered_output" | wc -l | tr -d ' ')
+          
           if [ "$line_count" -gt "$max_lines" ]; then
-            echo "... ($((line_count - 50)) lines truncated) ..."
+            local truncated_count=$((line_count - 50))
+            echo "... (${truncated_count} lines truncated) ..."
             echo ""
             echo "$filtered_output" | tail -50
-            echo "TRUNCATED=true" >> $GITHUB_OUTPUT
+            echo "TRUNCATED=true" >> "$GITHUB_OUTPUT"
           else
             echo "$filtered_output"
           fi
+          
+          # Cleanup temp file
+          rm -f "$temp_file"
         }
         
         # Process validate output
         validate_output=$(process_terraform_output "${{ steps.validate.outputs.stdout }}")
-        echo "PROCESSED_VALIDATE_OUTPUT<<EOF" >> $GITHUB_OUTPUT
-        echo "$validate_output" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        {
+          echo "PROCESSED_VALIDATE_OUTPUT<<EOF"
+          echo "$validate_output"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
         
         # Process plan output
         plan_output=$(process_terraform_output "${{ steps.plan.outputs.stdout }}")
-        echo "PROCESSED_PLAN_OUTPUT<<EOF" >> $GITHUB_OUTPUT
-        echo "$plan_output" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        {
+          echo "PROCESSED_PLAN_OUTPUT<<EOF"
+          echo "$plan_output"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
         
         # Process plan error
         plan_error=$(process_terraform_output "${{ steps.plan.outputs.stderr }}")
-        echo "PROCESSED_PLAN_ERROR<<EOF" >> $GITHUB_OUTPUT
-        echo "$plan_error" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        {
+          echo "PROCESSED_PLAN_ERROR<<EOF"
+          echo "$plan_error"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
 
     - uses: actions/github-script@v7
       if: github.event_name == 'pull_request'
