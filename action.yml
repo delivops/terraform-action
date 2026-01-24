@@ -1,42 +1,101 @@
 name: 'delivops-github-action-terraform'
-description: 'Fully automated Terraform GitHub Action: fmt, init, validate, plan, apply.'
+description: 'Fully automated Terraform GitHub Action: fmt, init, validate, plan, apply with optional cost estimation.'
 author: 'delivops'
 branding:
   icon: 'cloud'
   color: 'purple'
+
 inputs:
   working_directory:
     description: 'Directory containing Terraform configuration'
     required: true
   aws_region:
-    description: 'AWS Region'
+    description: 'AWS Region (e.g., us-east-1, eu-west-1)'
     required: true
   aws_role:
-    description: 'AWS Role to assume for authentication'
+    description: 'AWS Role name to assume for authentication'
     required: true
   terraform_version:
     description: 'Terraform version to install'
     required: false
     default: '1.9.8'
   environment:
-    description: 'Terraform environment' 
-    required: true  
+    description: 'Terraform environment (e.g., dev, staging, prod)'
+    required: true
   aws_account_id:
+    description: 'AWS Account ID (12-digit number)'
     required: true
   github_token:
-    description: 'GitHub token'
-    required: true 
+    description: 'GitHub token for PR comments'
+    required: true
+  var_file:
+    description: 'Path to a .tfvars file (relative to working_directory)'
+    required: false
+    default: ''
+  extra_args:
+    description: 'Additional arguments to pass to terraform plan/apply'
+    required: false
+    default: ''
+  plan_only:
+    description: 'Set to true to skip apply even on main branch push'
+    required: false
+    default: 'false'
+  enable_cost_estimation:
+    description: 'Enable Infracost cost estimation (requires infracost_api_key)'
+    required: false
+    default: 'false'
+  infracost_api_key:
+    description: 'Infracost API key (required if enable_cost_estimation is true)'
+    required: false
+    default: ''
+
+outputs:
+  fmt_outcome:
+    description: 'Outcome of terraform fmt check (success/failure)'
+    value: ${{ steps.fmt.outcome }}
+  validate_outcome:
+    description: 'Outcome of terraform validate (success/failure)'
+    value: ${{ steps.validate.outputs.outcome }}
+  plan_outcome:
+    description: 'Outcome of terraform plan (success/failure/skipped)'
+    value: ${{ steps.plan.outputs.outcome }}
+  apply_outcome:
+    description: 'Outcome of terraform apply (success/failure/skipped)'
+    value: ${{ steps.apply.outcome }}
 
 runs:
   using: "composite"
   steps:
+    - name: Validate Inputs
+      shell: bash
+      run: |
+        # Validate AWS Account ID (must be 12 digits)
+        if ! [[ "${{ inputs.aws_account_id }}" =~ ^[0-9]{12}$ ]]; then
+          echo "::error::Invalid aws_account_id: must be a 12-digit number"
+          exit 1
+        fi
+        
+        # Validate AWS Region format (supports standard, gov, and china regions)
+        if ! [[ "${{ inputs.aws_region }}" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]]; then
+          echo "::error::Invalid aws_region format: expected format like 'us-east-1', 'eu-west-2', or 'us-gov-west-1'"
+          exit 1
+        fi
+        
+        # Validate cost estimation requirements
+        if [[ "${{ inputs.enable_cost_estimation }}" == "true" && -z "${{ inputs.infracost_api_key }}" ]]; then
+          echo "::error::infracost_api_key is required when enable_cost_estimation is true"
+          exit 1
+        fi
+        
+        echo "✅ All inputs validated successfully"
+
     - name: Git checkout
       uses: actions/checkout@v4
 
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume:  "arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ inputs.aws_role }}"
+        role-to-assume: "arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ inputs.aws_role }}"
         aws-region: ${{ inputs.aws_region }}
 
     - name: Setup Terraform
@@ -44,123 +103,184 @@ runs:
       with:
         terraform_version: ${{ inputs.terraform_version }}
 
+    - name: Setup Infracost
+      if: inputs.enable_cost_estimation == 'true'
+      uses: infracost/actions/setup@v3
+      with:
+        api-key: ${{ inputs.infracost_api_key }}
+
     - name: Terraform fmt check
       id: fmt
       shell: bash
-      run: terraform fmt -check
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        terraform fmt -check -diff > "$RUNNER_TEMP/terraform-outputs-fmt.txt" 2>&1 || {
+          cat "$RUNNER_TEMP/terraform-outputs-fmt.txt"
+          exit 1
+        }
       continue-on-error: true
 
     - name: Terraform Init
       id: init
       shell: bash
-      run: terraform init || terraform init -upgrade
       working-directory: ${{ inputs.working_directory }}
+      run: |
+        if terraform init > "$RUNNER_TEMP/terraform-outputs-init.txt" 2>&1; then
+          cat "$RUNNER_TEMP/terraform-outputs-init.txt"
+        elif terraform init -upgrade > "$RUNNER_TEMP/terraform-outputs-init.txt" 2>&1; then
+          cat "$RUNNER_TEMP/terraform-outputs-init.txt"
+        else
+          cat "$RUNNER_TEMP/terraform-outputs-init.txt"
+          exit 1
+        fi
+      continue-on-error: true
 
     - name: Terraform Validate
       id: validate
       shell: bash
-      run: |
-        terraform validate -no-color > /tmp/terraform-outputs-validate.txt 2>&1
-        echo "outcome=$([ $? -eq 0 ] && echo 'success' || echo 'failure')" >> $GITHUB_OUTPUT
       working-directory: ${{ inputs.working_directory }}
+      run: |
+        if terraform validate -no-color > "$RUNNER_TEMP/terraform-outputs-validate.txt" 2>&1; then
+          echo "outcome=success" >> $GITHUB_OUTPUT
+        else
+          echo "outcome=failure" >> $GITHUB_OUTPUT
+        fi
       continue-on-error: true
 
     - name: Terraform Plan
       id: plan
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      if: github.event_name == 'pull_request' && steps.validate.outputs.outcome == 'success'
       run: |
-        if terraform plan -no-color -input=false -out=/tmp/terraform-outputs-plan.tfplan; then
+        VAR_FILE_ARG=""
+        if [[ -n "${{ inputs.var_file }}" ]]; then
+          VAR_FILE_ARG="-var-file=${{ inputs.var_file }}"
+        fi
+        
+        if terraform plan -no-color -input=false -out="$RUNNER_TEMP/terraform-outputs-plan.tfplan" $VAR_FILE_ARG ${{ inputs.extra_args }}; then
           echo "outcome=success" >> $GITHUB_OUTPUT
         else
           echo "outcome=failure" >> $GITHUB_OUTPUT
         fi
-        # Convert (even failed) binary plan to human-readable text for processing
-        terraform show -no-color /tmp/terraform-outputs-plan.tfplan > /tmp/terraform-outputs-plan.txt 2>&1 || echo "Plan failed" > /tmp/terraform-outputs-plan.txt
-      working-directory: ${{ inputs.working_directory }}
-      if: github.event_name == 'pull_request' && steps.validate.outputs.outcome == 'success'
+        
+        # Convert plan to human-readable text for processing
+        terraform show -no-color "$RUNNER_TEMP/terraform-outputs-plan.tfplan" > "$RUNNER_TEMP/terraform-outputs-plan.txt" 2>&1 || echo "Plan failed" > "$RUNNER_TEMP/terraform-outputs-plan.txt"
+        
+        # Extract change counts (e.g., "Plan: 3 to add, 1 to change, 0 to destroy")
+        PLAN_SUMMARY=$(grep -E "Plan:|No changes" "$RUNNER_TEMP/terraform-outputs-plan.txt" | head -1 || echo "")
+        echo "plan_summary=$PLAN_SUMMARY" >> $GITHUB_OUTPUT
+        
+        # Detect lock file changes
+        if [[ -f ".terraform.lock.hcl" ]]; then
+          if git diff --name-only | grep -q ".terraform.lock.hcl"; then
+            echo "lock_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "lock_changed=false" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "lock_changed=false" >> $GITHUB_OUTPUT
+        fi
       continue-on-error: true
 
-    - uses: actions/github-script@v7
+    - name: Generate Cost Estimation
+      id: cost
+      if: inputs.enable_cost_estimation == 'true' && github.event_name == 'pull_request' && steps.plan.outputs.outcome == 'success'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        infracost breakdown --path "$RUNNER_TEMP/terraform-outputs-plan.tfplan" --format table > "$RUNNER_TEMP/terraform-outputs-cost.txt" 2>&1 || echo "Cost estimation failed" > "$RUNNER_TEMP/terraform-outputs-cost.txt"
+      continue-on-error: true
+
+    - name: Comment on PR
+      uses: actions/github-script@v7
       if: github.event_name == 'pull_request'
       env:
         VALIDATE_OUTCOME: ${{ steps.validate.outputs.outcome }}
         PLAN_OUTCOME: ${{ steps.plan.outputs.outcome }}
+        PLAN_SUMMARY: ${{ steps.plan.outputs.plan_summary }}
+        LOCK_CHANGED: ${{ steps.plan.outputs.lock_changed }}
         ENVIRONMENT: ${{ inputs.environment }}
         FMT_OUTCOME: ${{ steps.fmt.outcome }}
         INIT_OUTCOME: ${{ steps.init.outcome }}
+        RUNNER_TEMP: ${{ runner.temp }}
+        WORKING_DIRECTORY: ${{ inputs.working_directory }}
       with:
         github-token: ${{ inputs.github_token }}
         script: |
-          const fs = require('fs');
-          const environment = process.env.ENVIRONMENT;
-          let hasTruncation = false;
-          
-          // Helper to safely read file; returns empty string on error
-          function readFileSafe(path) {
-            try { return fs.readFileSync(path, 'utf8'); } catch(_) { return ''; }
-          }
-          // Function to process terraform output
-          function processOutput(content) {
-            if (!content || content.trim() === '' || content === 'null') {
-              return 'No output available';
-            }
-            const lines = content.split('\n');
-            const indicators = [
-              'Note: Objects have changed outside of Terraform',
-              'Terraform will perform the following actions:',
-              'No changes. Your infrastructure matches the configuration.',
-              'Planning failed. Terraform encountered an error while generating this plan.',
-              'Plan:',
-              'Changes to Outputs:'
-            ];
-            let idx = lines.findIndex(l => indicators.some(ind => l.includes(ind)));
-            const relevant = idx >= 0 ? lines.slice(idx) : lines;
-            if (relevant.length > 100) {
-              hasTruncation = true;
-              return `... (${relevant.length - 100} lines truncated) ...\n\n${relevant.slice(-100).join('\n')}`;
-            }
-            return relevant.join('\n');
-          }
-          const validateOutput = processOutput(readFileSafe('/tmp/terraform-outputs-validate.txt'));
-          const planOutput = processOutput(readFileSafe('/tmp/terraform-outputs-plan.txt'));
-          
-          let planSection;
-          if (process.env.VALIDATE_OUTCOME === 'failure') {
-            planSection = `#### Terraform Plan 📖 \`skipped\` ⏭️\n\n<details><summary>Validation Failed - Show Details</summary>\n\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform validation failed!** Fix the errors above before merging.`;
-          } else if (process.env.PLAN_OUTCOME === 'success') {
-            planSection = `#### Terraform Plan 📖 \`success\` ✅\n\n<details><summary>Show Plan</summary>\n\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n\n</details>`;
-          } else if (process.env.PLAN_OUTCOME === 'failure') {
-            planSection = `#### Terraform Plan 📖 \`failure\` ❌\n\n<details><summary>Plan Failed - Show Details</summary>\n\n\n\`\`\`\n${planOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform plan failed!** Fix the errors above before merging.`;
-          } else {
-            planSection = '#### Terraform Plan 📖 `skipped` ⏭️\n\n> Plan was skipped due to validation failure.';
-          }
-          const comment = `## Terraform ${environment}\n#### Terraform Format and Style 🖌 \`${process.env.FMT_OUTCOME}\`\n#### Terraform Initialization ⚙️ \`${process.env.INIT_OUTCOME}\`\n#### Terraform Validation 🤖 \`${process.env.VALIDATE_OUTCOME}\`\n\n<details><summary>Validation Output</summary>\n\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>\n\n${planSection}\n\n*Pushed by: @${context.actor}, Action: \`${context.eventName}\`*${hasTruncation ? `\n\n**⚠️ Output truncated due to length. [View full logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}).**` : ''}`;
-          const { data: comments } = await github.rest.issues.listComments({ issue_number: context.issue.number, owner: context.repo.owner, repo: context.repo.repo });
-          
-          const botComment = comments.find(c => c.body.includes(`## Terraform ${environment}\n`));
-          if (botComment) {
-            await github.rest.issues.updateComment({
-              comment_id: botComment.id,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
-          } else {
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
-          }
+          const script = require('${{ github.action_path }}/scripts/pr-comment.js');
+          await script({ github, context, core });
 
-    - name: Fail if Plan Failed
-      if: steps.plan.outputs.outcome == 'failure' || steps.validate.outputs.outcome == 'failure'
+    - name: Write Job Summary
+      if: always()
+      shell: bash
+      env:
+        ENVIRONMENT: ${{ inputs.environment }}
+        FMT_OUTCOME: ${{ steps.fmt.outcome }}
+        INIT_OUTCOME: ${{ steps.init.outcome }}
+        VALIDATE_OUTCOME: ${{ steps.validate.outputs.outcome }}
+        PLAN_OUTCOME: ${{ steps.plan.outputs.outcome }}
+        PLAN_SUMMARY: ${{ steps.plan.outputs.plan_summary }}
+        APPLY_OUTCOME: ${{ steps.apply.outcome }}
+      run: |
+        # Build status icons
+        fmt_icon=$([[ "$FMT_OUTCOME" == "success" ]] && echo "✅" || echo "❌")
+        init_icon=$([[ "$INIT_OUTCOME" == "success" ]] && echo "✅" || echo "❌")
+        validate_icon=$([[ "$VALIDATE_OUTCOME" == "success" ]] && echo "✅" || echo "❌")
+        
+        if [[ -z "$PLAN_OUTCOME" ]]; then
+          plan_icon="⏭️"
+        elif [[ "$PLAN_OUTCOME" == "success" ]]; then
+          plan_icon="✅"
+        else
+          plan_icon="❌"
+        fi
+        
+        if [[ -z "$APPLY_OUTCOME" ]]; then
+          apply_icon="⏭️"
+        elif [[ "$APPLY_OUTCOME" == "success" ]]; then
+          apply_icon="✅"
+        else
+          apply_icon="❌"
+        fi
+        
+        # Overall status
+        if [[ "$INIT_OUTCOME" == "failure" || "$VALIDATE_OUTCOME" == "failure" || "$PLAN_OUTCOME" == "failure" ]]; then
+          overall="❌"
+        else
+          overall="✅"
+        fi
+        
+        # Build summary
+        echo "## Terraform $ENVIRONMENT $overall" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Format | $fmt_icon |" >> $GITHUB_STEP_SUMMARY
+        echo "| Init | $init_icon |" >> $GITHUB_STEP_SUMMARY
+        echo "| Validate | $validate_icon |" >> $GITHUB_STEP_SUMMARY
+        echo "| Plan | $plan_icon |" >> $GITHUB_STEP_SUMMARY
+        echo "| Apply | $apply_icon |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [[ -n "$PLAN_SUMMARY" ]]; then
+          echo "**$PLAN_SUMMARY**" >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: Fail if Any Step Failed
+      if: steps.init.outcome == 'failure' || steps.plan.outputs.outcome == 'failure' || steps.validate.outputs.outcome == 'failure'
       shell: bash
       run: exit 1
 
     - name: Terraform Apply
-      if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name == 'push'
+      id: apply
+      if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name == 'push' && inputs.plan_only != 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
-      run: terraform apply -auto-approve -input=false
+      run: |
+        VAR_FILE_ARG=""
+        if [[ -n "${{ inputs.var_file }}" ]]; then
+          VAR_FILE_ARG="-var-file=${{ inputs.var_file }}"
+        fi
+        
+        terraform apply -auto-approve -input=false $VAR_FILE_ARG ${{ inputs.extra_args }}
