@@ -55,10 +55,10 @@ outputs:
     value: ${{ steps.fmt.outcome }}
   validate_outcome:
     description: 'Outcome of terraform validate (success/failure)'
-    value: ${{ steps.validate.outputs.outcome }}
+    value: ${{ steps.validate.outcome }}
   plan_outcome:
     description: 'Outcome of terraform plan (success/failure/skipped)'
-    value: ${{ steps.plan.outputs.outcome }}
+    value: ${{ steps.plan.outcome }}
   apply_outcome:
     description: 'Outcome of terraform apply (success/failure/skipped)'
     value: ${{ steps.apply.outcome }}
