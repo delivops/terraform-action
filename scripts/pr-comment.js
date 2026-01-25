@@ -127,13 +127,17 @@ ${planSection}
 *Pushed by: @${context.actor}, Action: \`${context.eventName}\`*${hasTruncation ? `\n\n**⚠️ Output truncated due to length. [View full logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}).**` : ''}`;
 
   // Find existing comment or create new one
-  const { data: comments } = await github.rest.issues.listComments({
-    issue_number: context.issue.number,
-    owner: context.repo.owner,
-    repo: context.repo.repo,
-  });
+  const comments = await github.paginate(
+    github.rest.issues.listComments,
+    {
+      issue_number: context.issue.number,
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      per_page: 100,
+    }
+  );
 
-  const botComment = comments.find((c) => c.body.includes(`## Terraform ${environment}\n`));
+  const botComment = comments.find((c) => c.body && c.body.includes(`## Terraform ${environment}\n`));
   if (botComment) {
     await github.rest.issues.updateComment({
       comment_id: botComment.id,
