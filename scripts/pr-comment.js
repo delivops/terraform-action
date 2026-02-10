@@ -47,12 +47,17 @@ module.exports = async ({ github, context, core }) => {
     return { text: content, truncated: false };
   }
 
-  // Function to filter terraform init output - keep only errors
+  // Function to filter terraform init output - keep only errors.
+  // When init retries with -upgrade, discard first attempt output.
   function filterInitOutput(content) {
     if (!content || content.trim() === '') {
       return content;
     }
-    const lines = content.split('\n');
+    // If retry separator exists, only consider the last attempt
+    const separator = '--- First attempt failed, trying with -upgrade ---';
+    const sepIdx = content.indexOf(separator);
+    const relevant = sepIdx >= 0 ? content.substring(sepIdx + separator.length) : content;
+    const lines = relevant.split('\n');
     const errorIdx = lines.findIndex((line) => line.includes('Error:'));
     if (errorIdx < 0) {
       return content;

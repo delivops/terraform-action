@@ -86,7 +86,10 @@ function filterInitOutput(content) {
   if (!content || content.trim() === '') {
     return content;
   }
-  const lines = content.split('\n');
+  const separator = '--- First attempt failed, trying with -upgrade ---';
+  const sepIdx = content.indexOf(separator);
+  const relevant = sepIdx >= 0 ? content.substring(sepIdx + separator.length) : content;
+  const lines = relevant.split('\n');
   const errorIdx = lines.findIndex((line) => line.includes('Error:'));
   if (errorIdx < 0) {
     return content;
@@ -293,6 +296,46 @@ test('returns full output when no Error: found', () => {
     '- Finding hashicorp/aws versions matching "~> 5.0"...',
     'Terraform has been successfully initialized!',
   ].join('\n');
+  assert.strictEqual(filterInitOutput(input), input);
+});
+
+test('discards first attempt and extracts error from retry', () => {
+  const input = [
+    'Initializing the backend...',
+    'Error: First attempt error message',
+    'Some details about first error',
+    '--- First attempt failed, trying with -upgrade ---',
+    'Initializing the backend...',
+    'Initializing provider plugins...',
+    '- Downloading registry.terraform.io/hashicorp/aws v5.30.0...',
+    '- Installed hashicorp/aws v5.30.0',
+    'Upgrading modules...',
+    'Downloading registry.terraform.io/delivops/ecs-service/aws 0.1.55 for cron_service...',
+    '- cron_service in .terraform/modules/cron_service',
+    '',
+    'Error: Duplicate resource "aws_ecs_cluster" configuration',
+    '',
+    '  on ecs-clusters.tf line 12:',
+    '  12: resource "aws_ecs_cluster" "php_ecs_cluster" {',
+    '',
+    'A resource named "php_ecs_cluster" was already declared.',
+  ].join('\n');
+  const result = filterInitOutput(input);
+  assert(result.startsWith('Error: Duplicate resource'));
+  assert(!result.includes('First attempt error'));
+  assert(!result.includes('Downloading'));
+  assert(!result.includes('Upgrading modules'));
+  assert(result.includes('resource named "php_ecs_cluster"'));
+});
+
+test('returns full output when retry has no Error:', () => {
+  const input = [
+    'Error: Some error',
+    '--- First attempt failed, trying with -upgrade ---',
+    'Initializing the backend...',
+    'Terraform has been successfully initialized!',
+  ].join('\n');
+  // No Error: in retry portion, so return full content as fallback
   assert.strictEqual(filterInitOutput(input), input);
 });
 
