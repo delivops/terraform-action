@@ -111,7 +111,7 @@ module.exports = async ({ github, context, core }) => {
   } else if (process.env.VALIDATE_OUTCOME === 'failure') {
     planSection = `#### Terraform Plan 📖 \`skipped\` ⏭️\n\n<details><summary>Validation Failed - Show Details</summary>\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform validation failed!** Fix the errors above before merging.`;
   } else if (process.env.PLAN_OUTCOME === 'success') {
-    planSection = `#### Terraform Plan 📖 \`success\` ✅\n\n<details><summary>Show Plan</summary>\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n\n</details>${costSection}`;
+    planSection = `#### Terraform Plan 📖 \`success\` ✅\n\n<details><summary>Show Plan</summary>\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n\n</details>\n${costSection}`;
   } else if (process.env.PLAN_OUTCOME === 'failure') {
     planSection = `#### Terraform Plan 📖 \`failure\` ❌\n\n<details><summary>Plan Failed - Show Details</summary>\n\n\`\`\`\n${planOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform plan failed!** Fix the errors above before merging.`;
   } else {
