@@ -158,7 +158,7 @@ module.exports = async ({ github, context, core }) => {
   else if (process.env.PLAN_OUTCOME !== 'success') planIcon = '⏭️';
   const lockIcon = lockChanged ? '⚠️' : '✅';
 
-  const statusTable = `| Format 🖌 | Init ⚙️ | Validate 🤖 | Plan 📖 | Lock 🔒 |\n|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} |`;
+  const statusTable = `| Format | Init | Validate | Plan | Lock File |\n|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} |`;
 
   // Build init section (only show if failed)
   let initSection = '';
@@ -196,11 +196,10 @@ module.exports = async ({ github, context, core }) => {
 
   const comment = [
     `## ${headerTitle}`,
-    statusTable,
     resourceSummary,
     validateDetails,
     planBody,
-    `*Pushed by: @${context.actor}, Action: \`${context.eventName}\`*`,
+    statusTable,
     hasTruncation ? `\n**⚠️ Output truncated due to length. [View full logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}).**` : '',
   ].filter(Boolean).join('\n');
 
