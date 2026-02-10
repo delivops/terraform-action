@@ -89,7 +89,8 @@ module.exports = async ({ github, context, core }) => {
   // Build cost estimation section if available
   let costSection = '';
   if (costOutput && costOutput.trim() !== '' && !costOutput.includes('Cost estimation failed')) {
-    costSection = `\n#### Cost Estimation 💰\n\n<details><summary>Show Cost Breakdown</summary>\n\n\`\`\`\n${costOutput}\n\`\`\`\n\n</details>\n`;
+    const truncatedCost = truncateOutput(costOutput, 100);
+    costSection = `\n#### Cost Estimation 💰\n\n<details><summary>Show Cost Breakdown</summary>\n\n\`\`\`\n${truncatedCost}\n\`\`\`\n\n</details>\n`;
   }
 
   // Build plan section based on outcomes

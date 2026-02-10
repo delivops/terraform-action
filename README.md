@@ -122,7 +122,7 @@ This action uses AWS OIDC for secure authentication. You need to:
 Your workflow must have the following permissions:
 
 \`\`\`yaml
-Your workflow must have the following permissions:
+permissions:
   id-token: write      # Required for AWS OIDC authentication
   contents: read       # Required for checkout
   issues: write        # Required for PR comments via the Issues API
@@ -147,6 +147,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  issues: write
   pull-requests: write
 
 jobs:
@@ -232,6 +233,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  issues: write
   pull-requests: write
 
 jobs:
