@@ -76,10 +76,10 @@ module.exports = async ({ github, context, core }) => {
   // Build categorized markdown lists of resource changes
   function buildResourceSummary(changes) {
     const categories = [
-      { key: 'created', label: '🟢 Created' },
-      { key: 'updated', label: '🔄 Updated' },
-      { key: 'deleted', label: '🔴 Deleted' },
-      { key: 'replaced', label: '⚠️ Replaced' },
+      { key: 'created', label: '🟢 Will be Created' },
+      { key: 'updated', label: '🔄 Will be Updated' },
+      { key: 'deleted', label: '🔴 Will be Deleted' },
+      { key: 'replaced', label: '⚠️ Will be Replaced' },
     ];
     const sections = [];
     for (const { key, label } of categories) {
@@ -113,9 +113,9 @@ module.exports = async ({ github, context, core }) => {
     ];
     let idx = lines.findIndex((l) => indicators.some((ind) => l.includes(ind)));
     const relevant = idx >= 0 ? lines.slice(idx) : lines;
-    if (relevant.length > 100) {
+    if (relevant.length > 500) {
       return {
-        text: `... (${relevant.length - 100} lines truncated) ...\n\n${relevant.slice(-100).join('\n')}`,
+        text: `... (${relevant.length - 500} lines truncated) ...\n\n${relevant.slice(-500).join('\n')}`,
         truncated: true,
       };
     }
@@ -131,11 +131,12 @@ module.exports = async ({ github, context, core }) => {
   const initOutput = initResult.text;
   const validateOutput = validateResult.text;
   const planOutput = planResult.text;
+  const isCleanValidation = validateOutput.trim() === 'Success! The configuration is valid.';
   // Only track truncation for outputs that are actually displayed in the comment
   if (process.env.INIT_OUTCOME === 'failure') {
     hasTruncation = initResult.truncated;
   } else {
-    hasTruncation = validateResult.truncated;
+    hasTruncation = !isCleanValidation && validateResult.truncated;
     if (process.env.VALIDATE_OUTCOME !== 'failure') {
       hasTruncation = hasTruncation || planResult.truncated;
     }
@@ -157,7 +158,7 @@ module.exports = async ({ github, context, core }) => {
   // Build status icons for the compact table
   const fmtIcon = process.env.FMT_OUTCOME === 'failure' ? '⚠️' : '✅';
   const initIcon = process.env.INIT_OUTCOME === 'failure' ? '❌' : '✅';
-  let validateIcon = '✅';
+  let validateIcon = isCleanValidation ? '✅' : '⚠️';
   if (process.env.INIT_OUTCOME === 'failure') validateIcon = '⏭️';
   else if (process.env.VALIDATE_OUTCOME === 'failure') validateIcon = '❌';
   let planIcon = '✅';
@@ -165,8 +166,10 @@ module.exports = async ({ github, context, core }) => {
   else if (process.env.PLAN_OUTCOME === 'failure') planIcon = '❌';
   else if (process.env.PLAN_OUTCOME !== 'success') planIcon = '⏭️';
   const lockIcon = lockChanged ? '⚠️' : '✅';
+  const tfVersion = process.env.TERRAFORM_VERSION || '';
 
-  const statusTable = `| Format | Init | Validate | Plan | Lock File |\n|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} |`;
+  const statusTable = `| Format | Init | Validate | Plan | Lock File |\n|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} |`
+    + (tfVersion ? `\n\n> 📋 Terraform v${tfVersion}` : '');
 
   // Build init section (only show if failed)
   let initSection = '';
@@ -182,9 +185,9 @@ module.exports = async ({ github, context, core }) => {
     costSection = `\n#### Cost Estimation 💰\n\n<details><summary>Show Cost Breakdown</summary>\n\n\`\`\`\n${costResult.text}\n\`\`\`\n\n</details>\n`;
   }
 
-  // Build validation details (collapsible, only on success)
+  // Build validation details (collapsible, only when there are warnings)
   let validateDetails = '';
-  if (process.env.INIT_OUTCOME !== 'failure' && process.env.VALIDATE_OUTCOME !== 'failure') {
+  if (process.env.INIT_OUTCOME !== 'failure' && process.env.VALIDATE_OUTCOME !== 'failure' && !isCleanValidation) {
     validateDetails = `<details><summary>Validation Output</summary>\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>`;
   }
 

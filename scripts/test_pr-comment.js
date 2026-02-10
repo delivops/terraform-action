@@ -41,9 +41,9 @@ function processPlanOutput(content) {
   ];
   let idx = lines.findIndex((l) => indicators.some((ind) => l.includes(ind)));
   const relevant = idx >= 0 ? lines.slice(idx) : lines;
-  if (relevant.length > 100) {
+  if (relevant.length > 500) {
     return {
-      text: `... (${relevant.length - 100} lines truncated) ...\n\n${relevant.slice(-100).join('\n')}`,
+      text: `... (${relevant.length - 500} lines truncated) ...\n\n${relevant.slice(-500).join('\n')}`,
       truncated: true,
     };
   }
@@ -91,10 +91,10 @@ function extractResourceChanges(content) {
 
 function buildResourceSummary(changes) {
   const categories = [
-    { key: 'created', label: '🟢 Created' },
-    { key: 'updated', label: '🔄 Updated' },
-    { key: 'deleted', label: '🔴 Deleted' },
-      { key: 'replaced', label: '⚠️ Replaced' },
+    { key: 'created', label: '🟢 Will be Created' },
+    { key: 'updated', label: '🔄 Will be Updated' },
+    { key: 'deleted', label: '🔴 Will be Deleted' },
+    { key: 'replaced', label: '⚠️ Will be Replaced' },
   ];
   const sections = [];
   for (const { key, label } of categories) {
@@ -275,15 +275,16 @@ test('returns all lines when no indicator found', () => {
   assert.strictEqual(result.truncated, false);
 });
 
-test('truncates relevant section when over 100 lines', () => {
+test('truncates relevant section when over 500 lines', () => {
   const noise = Array.from({ length: 5 }, (_, i) => `noise${i}`);
-  const planLines = Array.from({ length: 150 }, (_, i) => `resource${i}`);
+  const planLines = Array.from({ length: 600 }, (_, i) => `resource${i}`);
   const content = [...noise, 'Terraform will perform the following actions:', ...planLines].join('\n');
   const result = processPlanOutput(content);
   assert.strictEqual(result.truncated, true);
   assert(result.text.includes('lines truncated'));
-  // Should include the last 100 lines of the relevant section
-  assert(result.text.includes('resource149'));
+  // Should include the last 500 lines of the relevant section
+  assert(result.text.includes('resource599'));
+  assert(!result.text.includes('resource99\n'));
 });
 
 // ---------------------------------------------------------------------------
@@ -297,7 +298,7 @@ test('module runs and creates a comment via mock', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
   fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-fmt.txt'), '');
   fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-init.txt'), 'Initialized');
-  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-validate.txt'), 'Success!');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-validate.txt'), 'Success! The configuration is valid.');
   fs.writeFileSync(
     path.join(tmpDir, 'terraform-outputs-plan.txt'),
     'No changes. Your infrastructure matches the configuration.'
@@ -318,6 +319,7 @@ test('module runs and creates a comment via mock', async () => {
     GITHUB_SERVER_URL: 'https://github.com',
     GITHUB_REPOSITORY: 'test/repo',
     GITHUB_RUN_ID: '123',
+    TERRAFORM_VERSION: '1.9.8',
   });
 
   let createdBody = null;
@@ -345,7 +347,8 @@ test('module runs and creates a comment via mock', async () => {
   assert(createdBody !== null, 'Comment body should be set');
   assert(createdBody.includes('## Terraform test-env'), 'Should include environment header');
   assert(createdBody.includes('| ✅ | ✅ | ✅ | ✅ | ✅ |'), 'Should include all-success status table row');
-  assert(createdBody.includes('| Format 🖌 |'), 'Should include status table header');
+  assert(!createdBody.includes('Validation Output'), 'Should not show validation collapsible for clean success');
+  assert(createdBody.includes('Terraform v1.9.8'), 'Should include terraform version');
   assert(!createdBody.includes('Output truncated'), 'Should not show truncation warning for short output');
 
   // Restore env
@@ -362,7 +365,7 @@ test('module shows (non-blocking) for fmt failure without details', async () => 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
   fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-fmt.txt'), 'some diff output');
   fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-init.txt'), 'Initialized');
-  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-validate.txt'), 'Success!');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-validate.txt'), 'Success! The configuration is valid.');
   fs.writeFileSync(
     path.join(tmpDir, 'terraform-outputs-plan.txt'),
     'No changes. Your infrastructure matches the configuration.'
@@ -382,6 +385,7 @@ test('module shows (non-blocking) for fmt failure without details', async () => 
     GITHUB_SERVER_URL: 'https://github.com',
     GITHUB_REPOSITORY: 'test/repo',
     GITHUB_RUN_ID: '789',
+    TERRAFORM_VERSION: '1.9.8',
   });
 
   let createdBody = null;
@@ -423,12 +427,12 @@ test('module shows truncation warning when plan is very long', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
   fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-fmt.txt'), '');
   fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-init.txt'), 'Initialized');
-  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-validate.txt'), 'Success!');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-validate.txt'), 'Success! The configuration is valid.');
 
-  // Create a plan output with >100 relevant lines
+  // Create a plan output with >500 relevant lines
   const longPlan = [
     'Terraform will perform the following actions:',
-    ...Array.from({ length: 150 }, (_, i) => `  # resource.item[${i}] will be created`),
+    ...Array.from({ length: 600 }, (_, i) => `  # resource.item[${i}] will be created`),
   ].join('\n');
   fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-plan.txt'), longPlan);
 
@@ -446,6 +450,7 @@ test('module shows truncation warning when plan is very long', async () => {
     GITHUB_SERVER_URL: 'https://github.com',
     GITHUB_REPOSITORY: 'test/repo',
     GITHUB_RUN_ID: '456',
+    TERRAFORM_VERSION: '1.9.8',
   });
 
   let createdBody = null;
@@ -564,12 +569,12 @@ test('builds categorized sections', () => {
     deleted: [],
     replaced: [],
   });
-  assert(result.includes('🟢 Created'), 'Should include Created header');
+  assert(result.includes('🟢 Will be Created'), 'Should include Created header');
   assert(result.includes('- `aws_instance.web`'), 'Should list created resource');
-  assert(result.includes('🔄 Updated'), 'Should include Updated header');
+  assert(result.includes('🔄 Will be Updated'), 'Should include Updated header');
   assert(result.includes('- `aws_instance.svc`'), 'Should list updated resource');
-  assert(!result.includes('🔴 Deleted'), 'Should not include empty Deleted section');
-  assert(!result.includes('⚠️ Replaced'), 'Should not include empty Replaced section');
+  assert(!result.includes('🔴 Will be Deleted'), 'Should not include empty Deleted section');
+  assert(!result.includes('⚠️ Will be Replaced'), 'Should not include empty Replaced section');
 });
 
 test('truncates at 20 lines per category with overflow message', () => {
@@ -586,7 +591,7 @@ test('module includes resource changes in plan success comment', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
   fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-fmt.txt'), '');
   fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-init.txt'), 'Initialized');
-  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-validate.txt'), 'Success!');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-validate.txt'), 'Success! The configuration is valid.');
   fs.writeFileSync(
     path.join(tmpDir, 'terraform-outputs-plan.txt'),
     [
@@ -615,6 +620,7 @@ test('module includes resource changes in plan success comment', async () => {
     GITHUB_SERVER_URL: 'https://github.com',
     GITHUB_REPOSITORY: 'test/repo',
     GITHUB_RUN_ID: '999',
+    TERRAFORM_VERSION: '1.9.8',
   });
 
   let createdBody = null;
@@ -644,13 +650,140 @@ test('module includes resource changes in plan success comment', async () => {
     'Should include resource name'
   );
   assert(
-    createdBody.includes('🔄 Updated'),
+    createdBody.includes('🔄 Will be Updated'),
     'Should include Updated category header'
   );
   // Resource summary should appear before the <details> block
   const summaryIdx = createdBody.indexOf('module.svc.aws_ecs_service.ecs');
   const detailsIdx = createdBody.indexOf('<details>');
   assert(summaryIdx < detailsIdx, 'Resource summary should appear before <details>');
+
+  for (const key of Object.keys(process.env)) {
+    if (!(key in origEnv)) delete process.env[key];
+    else process.env[key] = origEnv[key];
+  }
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+console.log('\nIntegration (validate warning icon):');
+
+test('module shows ⚠️ validate icon and collapsible when validate has warnings', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-fmt.txt'), '');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-init.txt'), 'Initialized');
+  fs.writeFileSync(
+    path.join(tmpDir, 'terraform-outputs-validate.txt'),
+    'Warning: Deprecated attribute\n\nSuccess! The configuration is valid, but there were some validation warnings'
+  );
+  fs.writeFileSync(
+    path.join(tmpDir, 'terraform-outputs-plan.txt'),
+    'No changes. Your infrastructure matches the configuration.'
+  );
+
+  const origEnv = { ...process.env };
+  Object.assign(process.env, {
+    ENVIRONMENT: 'warn-validate-test',
+    PLAN_SUMMARY: 'No changes',
+    LOCK_CHANGED: 'false',
+    WORKING_DIRECTORY: '.',
+    FMT_OUTCOME: 'success',
+    INIT_OUTCOME: 'success',
+    VALIDATE_OUTCOME: 'success',
+    PLAN_OUTCOME: 'success',
+    RUNNER_TEMP: tmpDir,
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_REPOSITORY: 'test/repo',
+    GITHUB_RUN_ID: '1000',
+    TERRAFORM_VERSION: '1.9.8',
+  });
+
+  let createdBody = null;
+  const mockGithub = {
+    paginate: async () => [],
+    rest: {
+      issues: {
+        listComments: {},
+        createComment: async ({ body }) => { createdBody = body; },
+      },
+    },
+  };
+  const mockContext = {
+    actor: 'test-user',
+    eventName: 'pull_request',
+    issue: { number: 20 },
+    repo: { owner: 'test', repo: 'repo' },
+  };
+
+  delete require.cache[require.resolve('./pr-comment.js')];
+  const prComment = require('./pr-comment.js');
+  await prComment({ github: mockGithub, context: mockContext, core: {} });
+
+  assert(createdBody !== null, 'Comment body should be set');
+  assert(createdBody.includes('| ✅ | ✅ | ⚠️ | ✅ | ✅ |'), 'Should show ⚠️ for validate with warnings');
+  assert(createdBody.includes('Validation Output'), 'Should show validation collapsible when warnings present');
+  assert(createdBody.includes('Warning: Deprecated attribute'), 'Should include warning text in collapsible');
+
+  for (const key of Object.keys(process.env)) {
+    if (!(key in origEnv)) delete process.env[key];
+    else process.env[key] = origEnv[key];
+  }
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test('module shows ✅ validate icon and no collapsible for clean success', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-fmt.txt'), '');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-init.txt'), 'Initialized');
+  fs.writeFileSync(
+    path.join(tmpDir, 'terraform-outputs-validate.txt'),
+    'Success! The configuration is valid.'
+  );
+  fs.writeFileSync(
+    path.join(tmpDir, 'terraform-outputs-plan.txt'),
+    'No changes. Your infrastructure matches the configuration.'
+  );
+
+  const origEnv = { ...process.env };
+  Object.assign(process.env, {
+    ENVIRONMENT: 'clean-validate-test',
+    PLAN_SUMMARY: 'No changes',
+    LOCK_CHANGED: 'false',
+    WORKING_DIRECTORY: '.',
+    FMT_OUTCOME: 'success',
+    INIT_OUTCOME: 'success',
+    VALIDATE_OUTCOME: 'success',
+    PLAN_OUTCOME: 'success',
+    RUNNER_TEMP: tmpDir,
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_REPOSITORY: 'test/repo',
+    GITHUB_RUN_ID: '1001',
+    TERRAFORM_VERSION: '1.9.8',
+  });
+
+  let createdBody = null;
+  const mockGithub = {
+    paginate: async () => [],
+    rest: {
+      issues: {
+        listComments: {},
+        createComment: async ({ body }) => { createdBody = body; },
+      },
+    },
+  };
+  const mockContext = {
+    actor: 'test-user',
+    eventName: 'pull_request',
+    issue: { number: 21 },
+    repo: { owner: 'test', repo: 'repo' },
+  };
+
+  delete require.cache[require.resolve('./pr-comment.js')];
+  const prComment = require('./pr-comment.js');
+  await prComment({ github: mockGithub, context: mockContext, core: {} });
+
+  assert(createdBody !== null, 'Comment body should be set');
+  assert(createdBody.includes('| ✅ | ✅ | ✅ | ✅ | ✅ |'), 'Should show ✅ for clean validate');
+  assert(!createdBody.includes('Validation Output'), 'Should NOT show validation collapsible for clean success');
 
   for (const key of Object.keys(process.env)) {
     if (!(key in origEnv)) delete process.env[key];
