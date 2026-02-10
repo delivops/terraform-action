@@ -55,7 +55,7 @@ outputs:
     value: ${{ steps.fmt.outcome }}
   validate_outcome:
     description: 'Outcome of terraform validate (success/failure)'
-    value: ${{ steps.validate.outcome }}
+    value: ${{ steps.validate.outputs.outcome }}
   plan_outcome:
     description: 'Outcome of terraform plan (success/failure/skipped)'
     value: ${{ steps.plan.outcome }}
@@ -211,6 +211,24 @@ runs:
           const script = require('${{ github.action_path }}/scripts/pr-comment.js');
           await script({ github, context, core });
 
+    - name: Fail if Any Step Failed
+      if: steps.init.outcome == 'failure' || steps.plan.outputs.outcome == 'failure' || steps.validate.outputs.outcome == 'failure'
+      shell: bash
+      run: exit 1
+
+    - name: Terraform Apply
+      id: apply
+      if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name == 'push' && inputs.plan_only != 'true'
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        VAR_FILE_ARG=""
+        if [[ -n "${{ inputs.var_file }}" ]]; then
+          VAR_FILE_ARG="-var-file=${{ inputs.var_file }}"
+        fi
+        
+        terraform apply -auto-approve -input=false $VAR_FILE_ARG ${{ inputs.extra_args }}
+
     - name: Write Job Summary
       if: always()
       shell: bash
@@ -266,21 +284,3 @@ runs:
         if [[ -n "$PLAN_SUMMARY" ]]; then
           echo "**$PLAN_SUMMARY**" >> $GITHUB_STEP_SUMMARY
         fi
-
-    - name: Fail if Any Step Failed
-      if: steps.init.outcome == 'failure' || steps.plan.outputs.outcome == 'failure' || steps.validate.outputs.outcome == 'failure'
-      shell: bash
-      run: exit 1
-
-    - name: Terraform Apply
-      id: apply
-      if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name == 'push' && inputs.plan_only != 'true'
-      shell: bash
-      working-directory: ${{ inputs.working_directory }}
-      run: |
-        VAR_FILE_ARG=""
-        if [[ -n "${{ inputs.var_file }}" ]]; then
-          VAR_FILE_ARG="-var-file=${{ inputs.var_file }}"
-        fi
-        
-        terraform apply -auto-approve -input=false $VAR_FILE_ARG ${{ inputs.extra_args }}
