@@ -55,6 +55,29 @@ module.exports = async ({ github, context, core }) => {
     return collapsed.join('\n').trim();
   }
 
+  // Extract resource change lines from plan output (e.g. "# aws_instance.x will be updated in-place")
+  const MAX_RESOURCE_LINES = 20;
+  function extractResourceChanges(content) {
+    if (!content || content.trim() === '') return [];
+    const matches = [];
+    for (const line of content.split('\n')) {
+      const m = line.match(/^\s+#\s+(.+\s+(?:will be|must be)\s+.+)$/);
+      if (m) matches.push(m[1].trim());
+    }
+    return matches;
+  }
+
+  // Build a markdown bullet list of resource changes, truncated to MAX_RESOURCE_LINES
+  function buildResourceSummary(changes) {
+    if (changes.length === 0) return '';
+    const shown = changes.slice(0, MAX_RESOURCE_LINES);
+    const lines = shown.map((c) => `- \`${c}\``);
+    if (changes.length > MAX_RESOURCE_LINES) {
+      lines.push(`- *... and ${changes.length - MAX_RESOURCE_LINES} more changes*`);
+    }
+    return '\n' + lines.join('\n') + '\n';
+  }
+
   // Function to process terraform plan output - find relevant section
   function processPlanOutput(content) {
     if (!content || content.trim() === '' || content === 'null') {
@@ -92,6 +115,10 @@ module.exports = async ({ github, context, core }) => {
   const planOutput = planResult.text;
   hasTruncation = initResult.truncated || validateResult.truncated || planResult.truncated;
 
+  // Build resource change summary from plan output
+  const resourceChanges = extractResourceChanges(planOutput);
+  const resourceSummary = buildResourceSummary(resourceChanges);
+
   // Build header with plan summary if available
   let headerSummary = '';
   if (planSummary && planSummary.includes('to add')) {
@@ -100,11 +127,19 @@ module.exports = async ({ github, context, core }) => {
     headerSummary = `\n> ✨ **No changes.** Your infrastructure matches the configuration.\n`;
   }
 
-  // Build lock file warning if changed
-  let lockWarning = '';
-  if (lockChanged) {
-    lockWarning = `\n> ⚠️ **Lock file outdated** - Run locally:\n> \`\`\`bash\n> cd ${workingDirectory} && terraform init -upgrade && git add .terraform.lock.hcl && git commit -m "chore: update terraform lock"\n> \`\`\`\n`;
-  }
+  // Build status icons for the compact table
+  const fmtIcon = process.env.FMT_OUTCOME === 'failure' ? '⚠️' : '✅';
+  const initIcon = process.env.INIT_OUTCOME === 'failure' ? '❌' : '✅';
+  let validateIcon = '✅';
+  if (process.env.INIT_OUTCOME === 'failure') validateIcon = '⏭️';
+  else if (process.env.VALIDATE_OUTCOME === 'failure') validateIcon = '❌';
+  let planIcon = '✅';
+  if (process.env.INIT_OUTCOME === 'failure' || process.env.VALIDATE_OUTCOME === 'failure') planIcon = '⏭️';
+  else if (process.env.PLAN_OUTCOME === 'failure') planIcon = '❌';
+  else if (process.env.PLAN_OUTCOME !== 'success') planIcon = '⏭️';
+  const lockIcon = lockChanged ? '⚠️' : '✅';
+
+  const statusTable = `| Format 🖌 | Init ⚙️ | Validate 🤖 | Plan 📖 | Lock 🔒 |\n|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} |`;
 
   // Build init section (only show if failed)
   let initSection = '';
@@ -120,38 +155,33 @@ module.exports = async ({ github, context, core }) => {
     costSection = `\n#### Cost Estimation 💰\n\n<details><summary>Show Cost Breakdown</summary>\n\n\`\`\`\n${costResult.text}\n\`\`\`\n\n</details>\n`;
   }
 
-  // Build plan section based on outcomes
-  let planSection;
-  if (process.env.INIT_OUTCOME === 'failure') {
-    planSection = `#### Terraform Plan 📖 \`skipped\` ⏭️\n\n> ❌ **Terraform init failed!** Fix the errors above before merging.${initSection}`;
-  } else if (process.env.VALIDATE_OUTCOME === 'failure') {
-    planSection = `#### Terraform Plan 📖 \`skipped\` ⏭️\n\n<details><summary>Validation Failed - Show Details</summary>\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform validation failed!** Fix the errors above before merging.`;
-  } else if (process.env.PLAN_OUTCOME === 'success') {
-    planSection = `#### Terraform Plan 📖 \`success\` ✅\n\n<details><summary>Show Plan</summary>\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n\n</details>\n${costSection}`;
-  } else if (process.env.PLAN_OUTCOME === 'failure') {
-    planSection = `#### Terraform Plan 📖 \`failure\` ❌\n\n<details><summary>Plan Failed - Show Details</summary>\n\n\`\`\`\n${planOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform plan failed!** Fix the errors above before merging.`;
-  } else {
-    planSection = '#### Terraform Plan 📖 `skipped` ⏭️\n\n> Plan was skipped.';
+  // Build validation details (collapsible, only on success)
+  let validateDetails = '';
+  if (process.env.INIT_OUTCOME !== 'failure' && process.env.VALIDATE_OUTCOME !== 'failure') {
+    validateDetails = `<details><summary>Validation Output</summary>\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>`;
   }
 
-  // Build validate section (only expand if failed, otherwise collapsed)
-  let validateSection;
+  // Build plan body based on outcomes (heading is now in the status table)
+  let planBody;
   if (process.env.INIT_OUTCOME === 'failure') {
-    validateSection = `#### Terraform Validation 🤖 \`skipped\`\\n`;
+    planBody = `> ❌ **Terraform init failed!** Fix the errors above before merging.${initSection}`;
   } else if (process.env.VALIDATE_OUTCOME === 'failure') {
-    validateSection = `#### Terraform Validation 🤖 \`failure\` ❌\\n`;
+    planBody = `<details><summary>Validation Failed - Show Details</summary>\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform validation failed!** Fix the errors above before merging.`;
+  } else if (process.env.PLAN_OUTCOME === 'success') {
+    planBody = `<details><summary>Show Plan</summary>\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n\n</details>\n${costSection}`;
+  } else if (process.env.PLAN_OUTCOME === 'failure') {
+    planBody = `<details><summary>Plan Failed - Show Details</summary>\n\n\`\`\`\n${planOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform plan failed!** Fix the errors above before merging.`;
   } else {
-    validateSection = `#### Terraform Validation 🤖 \`${process.env.VALIDATE_OUTCOME}\` ✅\n\n<details><summary>Validation Output</summary>\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>\n`;
+    planBody = '> Plan was skipped.';
   }
 
   const comment = [
     `## Terraform ${environment}`,
+    statusTable,
     headerSummary,
-    lockWarning,
-    `#### Terraform Format and Style 🖌 \`${process.env.FMT_OUTCOME}\`${process.env.FMT_OUTCOME === 'failure' ? ' ❌ (non-blocking)' : ' ✅'}`,
-    `#### Terraform Initialization ⚙️ \`${process.env.INIT_OUTCOME}\`${process.env.INIT_OUTCOME === 'failure' ? ' ❌' : ' ✅'}`,
-    validateSection,
-    planSection,
+    resourceSummary,
+    validateDetails,
+    planBody,
     `*Pushed by: @${context.actor}, Action: \`${context.eventName}\`*`,
     hasTruncation ? `\n**⚠️ Output truncated due to length. [View full logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}).**` : '',
   ].filter(Boolean).join('\n');

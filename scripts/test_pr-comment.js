@@ -71,6 +71,28 @@ function filterValidateOutput(content) {
   return collapsed.join('\n').trim();
 }
 
+const MAX_RESOURCE_LINES = 20;
+
+function extractResourceChanges(content) {
+  if (!content || content.trim() === '') return [];
+  const matches = [];
+  for (const line of content.split('\n')) {
+    const m = line.match(/^\s+#\s+(.+\s+(?:will be|must be)\s+.+)$/);
+    if (m) matches.push(m[1].trim());
+  }
+  return matches;
+}
+
+function buildResourceSummary(changes) {
+  if (changes.length === 0) return '';
+  const shown = changes.slice(0, MAX_RESOURCE_LINES);
+  const lines = shown.map((c) => `- \`${c}\``);
+  if (changes.length > MAX_RESOURCE_LINES) {
+    lines.push(`- *... and ${changes.length - MAX_RESOURCE_LINES} more changes*`);
+  }
+  return '\n' + lines.join('\n') + '\n';
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -304,7 +326,8 @@ test('module runs and creates a comment via mock', async () => {
 
   assert(createdBody !== null, 'Comment body should be set');
   assert(createdBody.includes('## Terraform test-env'), 'Should include environment header');
-  assert(createdBody.includes('success'), 'Should include success status');
+  assert(createdBody.includes('| ✅ | ✅ | ✅ | ✅ | ✅ |'), 'Should include all-success status table row');
+  assert(createdBody.includes('| Format 🖌 |'), 'Should include status table header');
   assert(!createdBody.includes('Output truncated'), 'Should not show truncation warning for short output');
 
   // Restore env
@@ -367,7 +390,7 @@ test('module shows (non-blocking) for fmt failure without details', async () => 
   await prComment({ github: mockGithub, context: mockContext, core: {} });
 
   assert(createdBody !== null, 'Comment body should be set');
-  assert(createdBody.includes('(non-blocking)'), 'Should show non-blocking for fmt failure');
+  assert(createdBody.includes('| ⚠️ | ✅ | ✅ | ✅ |'), 'Should show ⚠️ for fmt failure in table');
   assert(!createdBody.includes('Format Issues Found'), 'Should not show fmt details');
   assert(!createdBody.includes('some diff output'), 'Should not include fmt diff content');
 
@@ -433,6 +456,154 @@ test('module shows truncation warning when plan is very long', async () => {
 
   assert(createdBody !== null, 'Comment body should be set');
   assert(createdBody.includes('Output truncated'), 'Should show truncation warning for long plan');
+
+  for (const key of Object.keys(process.env)) {
+    if (!(key in origEnv)) delete process.env[key];
+    else process.env[key] = origEnv[key];
+  }
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// extractResourceChanges tests
+// ---------------------------------------------------------------------------
+
+console.log('\nextractResourceChanges:');
+
+test('returns empty array for empty content', () => {
+  assert.deepStrictEqual(extractResourceChanges(''), []);
+  assert.deepStrictEqual(extractResourceChanges(null), []);
+});
+
+test('extracts "will be updated in-place" lines', () => {
+  const content = [
+    'Terraform will perform the following actions:',
+    '',
+    '  # module.svc.aws_ecs_service.ecs will be updated in-place',
+    '  ~ resource "aws_ecs_service" "ecs" {',
+    '        id = "arn:aws:ecs:us-east-1:123:service/prod/svc"',
+    '    }',
+  ].join('\n');
+  const result = extractResourceChanges(content);
+  assert.deepStrictEqual(result, ['module.svc.aws_ecs_service.ecs will be updated in-place']);
+});
+
+test('extracts "will be created" and "will be destroyed" lines', () => {
+  const content = [
+    '  # aws_instance.web will be created',
+    '  + resource "aws_instance" "web" {}',
+    '  # aws_instance.old will be destroyed',
+    '  - resource "aws_instance" "old" {}',
+  ].join('\n');
+  const result = extractResourceChanges(content);
+  assert.deepStrictEqual(result, [
+    'aws_instance.web will be created',
+    'aws_instance.old will be destroyed',
+  ]);
+});
+
+test('extracts "must be replaced" lines', () => {
+  const content = '  # aws_instance.web must be replaced\n  other stuff';
+  const result = extractResourceChanges(content);
+  assert.deepStrictEqual(result, ['aws_instance.web must be replaced']);
+});
+
+test('ignores non-resource lines', () => {
+  const content = [
+    'Plan: 1 to add, 0 to change, 0 to destroy.',
+    '  name = "test"',
+    '  # (3 unchanged blocks hidden)',
+  ].join('\n');
+  const result = extractResourceChanges(content);
+  assert.deepStrictEqual(result, []);
+});
+
+console.log('\nbuildResourceSummary:');
+
+test('returns empty string for no changes', () => {
+  assert.strictEqual(buildResourceSummary([]), '');
+});
+
+test('builds bullet list for a few changes', () => {
+  const result = buildResourceSummary(['aws_instance.web will be created']);
+  assert(result.includes('- `aws_instance.web will be created`'));
+});
+
+test('truncates at 20 lines with overflow message', () => {
+  const changes = Array.from({ length: 25 }, (_, i) => `resource.item${i} will be created`);
+  const result = buildResourceSummary(changes);
+  assert(result.includes('`resource.item19 will be created`'), 'Should include 20th item');
+  assert(!result.includes('`resource.item20 will be created`'), 'Should not include 21st item');
+  assert(result.includes('... and 5 more changes'), 'Should show overflow count');
+});
+
+console.log('\nIntegration (resource changes in comment):');
+
+test('module includes resource changes in plan success comment', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-fmt.txt'), '');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-init.txt'), 'Initialized');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-validate.txt'), 'Success!');
+  fs.writeFileSync(
+    path.join(tmpDir, 'terraform-outputs-plan.txt'),
+    [
+      'Terraform will perform the following actions:',
+      '',
+      '  # module.svc.aws_ecs_service.ecs will be updated in-place',
+      '  ~ resource "aws_ecs_service" "ecs" {',
+      '        id = "arn:aws:ecs:us-east-1:123:service/prod/svc"',
+      '    }',
+      '',
+      'Plan: 0 to add, 1 to change, 0 to destroy.',
+    ].join('\n')
+  );
+
+  const origEnv = { ...process.env };
+  Object.assign(process.env, {
+    ENVIRONMENT: 'resource-test',
+    PLAN_SUMMARY: 'Plan: 0 to add, 1 to change, 0 to destroy.',
+    LOCK_CHANGED: 'false',
+    WORKING_DIRECTORY: '.',
+    FMT_OUTCOME: 'success',
+    INIT_OUTCOME: 'success',
+    VALIDATE_OUTCOME: 'success',
+    PLAN_OUTCOME: 'success',
+    RUNNER_TEMP: tmpDir,
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_REPOSITORY: 'test/repo',
+    GITHUB_RUN_ID: '999',
+  });
+
+  let createdBody = null;
+  const mockGithub = {
+    paginate: async () => [],
+    rest: {
+      issues: {
+        listComments: {},
+        createComment: async ({ body }) => { createdBody = body; },
+      },
+    },
+  };
+  const mockContext = {
+    actor: 'test-user',
+    eventName: 'pull_request',
+    issue: { number: 10 },
+    repo: { owner: 'test', repo: 'repo' },
+  };
+
+  delete require.cache[require.resolve('./pr-comment.js')];
+  const prComment = require('./pr-comment.js');
+  await prComment({ github: mockGithub, context: mockContext, core: {} });
+
+  assert(createdBody !== null, 'Comment body should be set');
+  assert(
+    createdBody.includes('`module.svc.aws_ecs_service.ecs will be updated in-place`'),
+    'Should include resource change bullet'
+  );
+  // Resource summary should appear before the <details> block
+  const summaryIdx = createdBody.indexOf('will be updated in-place');
+  const detailsIdx = createdBody.indexOf('<details>');
+  assert(summaryIdx < detailsIdx, 'Resource summary should appear before <details>');
 
   for (const key of Object.keys(process.env)) {
     if (!(key in origEnv)) delete process.env[key];
