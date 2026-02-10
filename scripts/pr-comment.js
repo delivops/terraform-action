@@ -121,11 +121,11 @@ module.exports = async ({ github, context, core }) => {
   // Build validate section (only expand if failed, otherwise collapsed)
   let validateSection;
   if (process.env.INIT_OUTCOME === 'failure') {
-    validateSection = `#### Terraform Validation 🤖 \`skipped\``;
+    validateSection = `#### Terraform Validation 🤖 \`skipped\`\\n`;
   } else if (process.env.VALIDATE_OUTCOME === 'failure') {
-    validateSection = `#### Terraform Validation 🤖 \`failure\` ❌`;
+    validateSection = `#### Terraform Validation 🤖 \`failure\` ❌\\n`;
   } else {
-    validateSection = `#### Terraform Validation 🤖 \`${process.env.VALIDATE_OUTCOME}\` ✅\n\n<details><summary>Validation Output</summary>\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>`;
+    validateSection = `#### Terraform Validation 🤖 \`${process.env.VALIDATE_OUTCOME}\` ✅\n\n<details><summary>Validation Output</summary>\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>\n`;
   }
 
   const comment = [
