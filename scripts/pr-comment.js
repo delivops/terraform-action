@@ -138,11 +138,12 @@ module.exports = async ({ github, context, core }) => {
   const resourceSummary = buildResourceSummary(resourceChanges);
 
   // Build header with plan summary if available
-  let headerSummary = '';
+  let headerTitle = `Terraform ${environment}`;
   if (planSummary && planSummary.includes('to add')) {
-    headerSummary = `\n> 📊 **${planSummary}**\n`;
+    const m = planSummary.match(/(\d+ to add, \d+ to change, \d+ to destroy)/);
+    if (m) headerTitle += ` (${m[1]})`;
   } else if (planSummary && planSummary.includes('No changes')) {
-    headerSummary = `\n> ✨ **No changes.** Your infrastructure matches the configuration.\n`;
+    headerTitle += ' (no changes)';
   }
 
   // Build status icons for the compact table
@@ -194,9 +195,8 @@ module.exports = async ({ github, context, core }) => {
   }
 
   const comment = [
-    `## Terraform ${environment}`,
+    `## ${headerTitle}`,
     statusTable,
-    headerSummary,
     resourceSummary,
     validateDetails,
     planBody,
@@ -215,7 +215,7 @@ module.exports = async ({ github, context, core }) => {
     }
   );
 
-  const botComment = comments.find((c) => c.body && c.body.includes(`## Terraform ${environment}\n`));
+  const botComment = comments.find((c) => c.body && c.body.includes(`## Terraform ${environment}`));
   if (botComment) {
     await github.rest.issues.updateComment({
       comment_id: botComment.id,
