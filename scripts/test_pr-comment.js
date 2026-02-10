@@ -469,9 +469,9 @@ test('module runs and creates a comment via mock', async () => {
   assert(createdBody !== null, 'Comment body should be set');
   assert(createdBody.includes('<!-- tf-action:workflow=.github/workflows/terraform.yml:env=test-env:dir=. -->'), 'Should include hidden marker');
   assert(createdBody.includes('## Terraform test-env'), 'Should include environment header');
-  assert(createdBody.includes('| ✅ | ✅ | ✅ | ✅ | ✅ |'), 'Should include all-success status table row');
+  assert(createdBody.includes('| ✅ | ✅ | ✅ | ✅ | ✅ | 1.9.8 |'), 'Should include all-success status table row with version');
   assert(!createdBody.includes('Validation Output'), 'Should not show validation collapsible for clean success');
-  assert(createdBody.includes('Terraform v1.9.8'), 'Should include terraform version');
+  assert(createdBody.includes('| Version |'), 'Should include Version column header');
   assert(!createdBody.includes('Output truncated'), 'Should not show truncation warning for short output');
 
   // Restore env

@@ -202,8 +202,9 @@ module.exports = async ({ github, context, core }) => {
   const lockIcon = lockChanged ? '⚠️' : '✅';
   const tfVersion = process.env.TERRAFORM_VERSION || '';
 
-  const statusTable = `| Format | Init | Validate | Plan | Lock File |\n|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} |`
-    + (tfVersion ? `\n\n> 📋 Terraform v${tfVersion}` : '');
+  const statusTable = tfVersion
+    ? `| Format | Init | Validate | Plan | Lock File | Version |\n|:-:|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} | ${tfVersion} |`
+    : `| Format | Init | Validate | Plan | Lock File |\n|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} |`;
 
   // Build init section (only show if failed)
   let initSection = '';
