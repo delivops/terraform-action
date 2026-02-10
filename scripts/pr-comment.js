@@ -131,7 +131,15 @@ module.exports = async ({ github, context, core }) => {
   const initOutput = initResult.text;
   const validateOutput = validateResult.text;
   const planOutput = planResult.text;
-  hasTruncation = initResult.truncated || validateResult.truncated || planResult.truncated;
+  // Only track truncation for outputs that are actually displayed in the comment
+  if (process.env.INIT_OUTCOME === 'failure') {
+    hasTruncation = initResult.truncated;
+  } else {
+    hasTruncation = validateResult.truncated;
+    if (process.env.VALIDATE_OUTCOME !== 'failure') {
+      hasTruncation = hasTruncation || planResult.truncated;
+    }
+  }
 
   // Build resource change summary from plan output
   const resourceChanges = extractResourceChanges(planOutput);
