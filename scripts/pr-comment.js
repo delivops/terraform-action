@@ -31,6 +31,30 @@ module.exports = async ({ github, context, core }) => {
     return { text: content, truncated: false };
   }
 
+  // Function to filter terraform validate output - keep only warnings, errors, and status
+  function filterValidateOutput(content) {
+    if (!content || content.trim() === '') {
+      return content;
+    }
+    const lines = content.split('\n');
+    const filtered = lines.filter((line) => {
+      // Drop timestamp-prefixed provider log lines (INFO, DEBUG, TRACE, WARN)
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s+\[(INFO|DEBUG|TRACE|WARN|ERROR)\]/.test(line)) {
+        return false;
+      }
+      return true;
+    });
+    // Collapse consecutive blank lines
+    const collapsed = filtered.reduce((acc, line) => {
+      if (line.trim() === '' && acc.length > 0 && acc[acc.length - 1].trim() === '') {
+        return acc;
+      }
+      acc.push(line);
+      return acc;
+    }, []);
+    return collapsed.join('\n').trim();
+  }
+
   // Function to process terraform plan output - find relevant section
   function processPlanOutput(content) {
     if (!content || content.trim() === '' || content === 'null') {
@@ -58,17 +82,15 @@ module.exports = async ({ github, context, core }) => {
   }
 
   const tempDir = process.env.RUNNER_TEMP || '/tmp';
-  const fmtResult = truncateOutput(readFileSafe(`${tempDir}/terraform-outputs-fmt.txt`), 30);
   const initResult = truncateOutput(readFileSafe(`${tempDir}/terraform-outputs-init.txt`), 50);
-  const validateResult = truncateOutput(readFileSafe(`${tempDir}/terraform-outputs-validate.txt`), 50);
+  const validateResult = truncateOutput(filterValidateOutput(readFileSafe(`${tempDir}/terraform-outputs-validate.txt`)), 50);
   const planResult = processPlanOutput(readFileSafe(`${tempDir}/terraform-outputs-plan.txt`));
   const costOutput = readFileSafe(`${tempDir}/terraform-outputs-cost.txt`);
 
-  const fmtOutput = fmtResult.text;
   const initOutput = initResult.text;
   const validateOutput = validateResult.text;
   const planOutput = planResult.text;
-  hasTruncation = fmtResult.truncated || initResult.truncated || validateResult.truncated || planResult.truncated;
+  hasTruncation = initResult.truncated || validateResult.truncated || planResult.truncated;
 
   // Build header with plan summary if available
   let headerSummary = '';
@@ -82,12 +104,6 @@ module.exports = async ({ github, context, core }) => {
   let lockWarning = '';
   if (lockChanged) {
     lockWarning = `\n> ⚠️ **Lock file outdated** - Run locally:\n> \`\`\`bash\n> cd ${workingDirectory} && terraform init -upgrade && git add .terraform.lock.hcl && git commit -m "chore: update terraform lock"\n> \`\`\`\n`;
-  }
-
-  // Build fmt section
-  let fmtSection = '';
-  if (process.env.FMT_OUTCOME === 'failure') {
-    fmtSection = `\n<details><summary>❌ Format Issues Found</summary>\n\n\`\`\`diff\n${fmtOutput}\n\`\`\`\n\n</details>\n`;
   }
 
   // Build init section (only show if failed)
@@ -132,7 +148,7 @@ module.exports = async ({ github, context, core }) => {
     `## Terraform ${environment}`,
     headerSummary,
     lockWarning,
-    `#### Terraform Format and Style 🖌 \`${process.env.FMT_OUTCOME}\`${process.env.FMT_OUTCOME === 'failure' ? ' ❌' : ' ✅'}${fmtSection}`,
+    `#### Terraform Format and Style 🖌 \`${process.env.FMT_OUTCOME}\`${process.env.FMT_OUTCOME === 'failure' ? ' ❌ (non-blocking)' : ' ✅'}`,
     `#### Terraform Initialization ⚙️ \`${process.env.INIT_OUTCOME}\`${process.env.INIT_OUTCOME === 'failure' ? ' ❌' : ' ✅'}`,
     validateSection,
     planSection,

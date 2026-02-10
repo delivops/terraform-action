@@ -50,6 +50,27 @@ function processPlanOutput(content) {
   return { text: relevant.join('\n'), truncated: false };
 }
 
+function filterValidateOutput(content) {
+  if (!content || content.trim() === '') {
+    return content;
+  }
+  const lines = content.split('\n');
+  const filtered = lines.filter((line) => {
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s+\[(INFO|DEBUG|TRACE|WARN|ERROR)\]/.test(line)) {
+      return false;
+    }
+    return true;
+  });
+  const collapsed = filtered.reduce((acc, line) => {
+    if (line.trim() === '' && acc.length > 0 && acc[acc.length - 1].trim() === '') {
+      return acc;
+    }
+    acc.push(line);
+    return acc;
+  }, []);
+  return collapsed.join('\n').trim();
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -113,6 +134,62 @@ test('truncated flag is independent per call', () => {
   const r2 = truncateOutput(shortContent, 50);
   assert.strictEqual(r1.truncated, true);
   assert.strictEqual(r2.truncated, false);
+});
+
+console.log('\nfilterValidateOutput:');
+
+test('returns empty string as-is', () => {
+  assert.strictEqual(filterValidateOutput(''), '');
+});
+
+test('returns null as-is', () => {
+  assert.strictEqual(filterValidateOutput(null), null);
+});
+
+test('strips INFO log lines and keeps warnings/status', () => {
+  const input = [
+    '2026-02-10T20:47:12.684Z [INFO]  provider.terraform-provider-cloudflare_v4.52.5: configuring server automatic mTLS',
+    '2026-02-10T20:47:12.710Z [INFO]  provider: configuring client automatic mTLS',
+    'Warning: Deprecated attribute',
+    '',
+    '  on .terraform/modules/alerts_service/outputs.tf line 35',
+    '',
+    'Success! The configuration is valid, but there were some validation warnings',
+  ].join('\n');
+  const result = filterValidateOutput(input);
+  assert(!result.includes('[INFO]'), 'Should not contain INFO lines');
+  assert(result.includes('Warning: Deprecated attribute'), 'Should keep Warning lines');
+  assert(result.includes('Success!'), 'Should keep status line');
+});
+
+test('strips ERROR log lines but keeps Error: blocks', () => {
+  const input = [
+    '2026-02-10T20:47:14.326Z [ERROR] provider: error encountered while scanning stdout',
+    '',
+    'Error: Something failed',
+    '  details here',
+  ].join('\n');
+  const result = filterValidateOutput(input);
+  assert(!result.includes('[ERROR]'), 'Should not contain [ERROR] log lines');
+  assert(result.includes('Error: Something failed'), 'Should keep Error: block');
+});
+
+test('collapses consecutive blank lines after filtering', () => {
+  const input = [
+    '2026-02-10T20:47:12.684Z [INFO]  line1',
+    '2026-02-10T20:47:12.685Z [INFO]  line2',
+    '',
+    '',
+    'Warning: something',
+  ].join('\n');
+  const result = filterValidateOutput(input);
+  assert(!result.includes('\n\n\n'), 'Should not have triple blank lines');
+  assert(result.includes('Warning: something'));
+});
+
+test('keeps clean output unchanged', () => {
+  const input = 'Success! The configuration is valid.';
+  assert.strictEqual(filterValidateOutput(input), input);
 });
 
 console.log('\nprocessPlanOutput:');
@@ -237,6 +314,67 @@ test('module runs and creates a comment via mock', async () => {
   }
 
   // Cleanup
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test('module shows (non-blocking) for fmt failure without details', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-fmt.txt'), 'some diff output');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-init.txt'), 'Initialized');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-validate.txt'), 'Success!');
+  fs.writeFileSync(
+    path.join(tmpDir, 'terraform-outputs-plan.txt'),
+    'No changes. Your infrastructure matches the configuration.'
+  );
+
+  const origEnv = { ...process.env };
+  Object.assign(process.env, {
+    ENVIRONMENT: 'fmt-fail-test',
+    PLAN_SUMMARY: 'No changes',
+    LOCK_CHANGED: 'false',
+    WORKING_DIRECTORY: '.',
+    FMT_OUTCOME: 'failure',
+    INIT_OUTCOME: 'success',
+    VALIDATE_OUTCOME: 'success',
+    PLAN_OUTCOME: 'success',
+    RUNNER_TEMP: tmpDir,
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_REPOSITORY: 'test/repo',
+    GITHUB_RUN_ID: '789',
+  });
+
+  let createdBody = null;
+  const mockGithub = {
+    paginate: async () => [],
+    rest: {
+      issues: {
+        listComments: {},
+        createComment: async ({ body }) => {
+          createdBody = body;
+        },
+      },
+    },
+  };
+  const mockContext = {
+    actor: 'test-user',
+    eventName: 'pull_request',
+    issue: { number: 3 },
+    repo: { owner: 'test', repo: 'repo' },
+  };
+
+  delete require.cache[require.resolve('./pr-comment.js')];
+  const prComment = require('./pr-comment.js');
+  await prComment({ github: mockGithub, context: mockContext, core: {} });
+
+  assert(createdBody !== null, 'Comment body should be set');
+  assert(createdBody.includes('(non-blocking)'), 'Should show non-blocking for fmt failure');
+  assert(!createdBody.includes('Format Issues Found'), 'Should not show fmt details');
+  assert(!createdBody.includes('some diff output'), 'Should not include fmt diff content');
+
+  for (const key of Object.keys(process.env)) {
+    if (!(key in origEnv)) delete process.env[key];
+    else process.env[key] = origEnv[key];
+  }
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
