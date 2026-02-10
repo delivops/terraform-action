@@ -135,9 +135,7 @@ module.exports = async ({ github, context, core }) => {
     `#### Terraform Format and Style 🖌 \`${process.env.FMT_OUTCOME}\`${process.env.FMT_OUTCOME === 'failure' ? ' ❌' : ' ✅'}${fmtSection}`,
     `#### Terraform Initialization ⚙️ \`${process.env.INIT_OUTCOME}\`${process.env.INIT_OUTCOME === 'failure' ? ' ❌' : ' ✅'}`,
     validateSection,
-    '',
     planSection,
-    '',
     `*Pushed by: @${context.actor}, Action: \`${context.eventName}\`*`,
     hasTruncation ? `\n**⚠️ Output truncated due to length. [View full logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}).**` : '',
   ].filter(Boolean).join('\n');
