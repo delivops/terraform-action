@@ -212,11 +212,11 @@ test('returns null as-is', () => {
 
 test('strips INFO log lines and keeps warnings/status', () => {
   const input = [
-    '2026-02-10T20:47:12.684Z [INFO]  provider.terraform-provider-cloudflare_v4.52.5: configuring server automatic mTLS',
+    '2026-02-10T20:47:12.684Z [INFO]  provider.terraform-provider-example_v1.0.0: configuring server automatic mTLS',
     '2026-02-10T20:47:12.710Z [INFO]  provider: configuring client automatic mTLS',
     'Warning: Deprecated attribute',
     '',
-    '  on .terraform/modules/alerts_service/outputs.tf line 35',
+    '  on .terraform/modules/example_module/outputs.tf line 35',
     '',
     'Success! The configuration is valid, but there were some validation warnings',
   ].join('\n');
@@ -310,22 +310,22 @@ test('discards first attempt and extracts error from retry', () => {
     '- Downloading registry.terraform.io/hashicorp/aws v5.30.0...',
     '- Installed hashicorp/aws v5.30.0',
     'Upgrading modules...',
-    'Downloading registry.terraform.io/delivops/ecs-service/aws 0.1.55 for cron_service...',
-    '- cron_service in .terraform/modules/cron_service',
+    'Downloading registry.terraform.io/hashicorp/example/aws 0.1.0 for example_service...',
+    '- example_service in .terraform/modules/example_service',
     '',
     'Error: Duplicate resource "aws_ecs_cluster" configuration',
     '',
     '  on ecs-clusters.tf line 12:',
-    '  12: resource "aws_ecs_cluster" "php_ecs_cluster" {',
+    '  12: resource "aws_ecs_cluster" "main" {',
     '',
-    'A resource named "php_ecs_cluster" was already declared.',
+    'A resource named "main" was already declared.',
   ].join('\n');
   const result = filterInitOutput(input);
   assert(result.startsWith('Error: Duplicate resource'));
   assert(!result.includes('First attempt error'));
   assert(!result.includes('Downloading'));
   assert(!result.includes('Upgrading modules'));
-  assert(result.includes('resource named "php_ecs_cluster"'));
+  assert(result.includes('resource named "main"'));
 });
 
 test('returns full output when retry has no Error:', () => {
@@ -628,13 +628,13 @@ test('categorizes "will be updated in-place" lines', () => {
   const content = [
     'Terraform will perform the following actions:',
     '',
-    '  # module.svc.aws_ecs_service.ecs will be updated in-place',
-    '  ~ resource "aws_ecs_service" "ecs" {',
-    '        id = "arn:aws:ecs:us-east-1:123:service/prod/svc"',
+    '  # module.app.aws_ecs_service.main will be updated in-place',
+    '  ~ resource "aws_ecs_service" "main" {',
+    '        id = "arn:aws:ecs:us-east-1:000000000000:service/cluster/app"',
     '    }',
   ].join('\n');
   const result = extractResourceChanges(content);
-  assert.deepStrictEqual(result.updated, ['module.svc.aws_ecs_service.ecs']);
+  assert.deepStrictEqual(result.updated, ['module.app.aws_ecs_service.main']);
   assert.deepStrictEqual(result.created, []);
 });
 
@@ -722,9 +722,9 @@ test('module includes resource changes in plan success comment', async () => {
     [
       'Terraform will perform the following actions:',
       '',
-      '  # module.svc.aws_ecs_service.ecs will be updated in-place',
-      '  ~ resource "aws_ecs_service" "ecs" {',
-      '        id = "arn:aws:ecs:us-east-1:123:service/prod/svc"',
+      '  # module.app.aws_ecs_service.main will be updated in-place',
+      '  ~ resource "aws_ecs_service" "main" {',
+      '        id = "arn:aws:ecs:us-east-1:000000000000:service/cluster/app"',
       '    }',
       '',
       'Plan: 0 to add, 1 to change, 0 to destroy.',
@@ -772,7 +772,7 @@ test('module includes resource changes in plan success comment', async () => {
 
   assert(createdBody !== null, 'Comment body should be set');
   assert(
-    createdBody.includes('`module.svc.aws_ecs_service.ecs`'),
+    createdBody.includes('`module.app.aws_ecs_service.main`'),
     'Should include resource name'
   );
   assert(
@@ -780,7 +780,7 @@ test('module includes resource changes in plan success comment', async () => {
     'Should include Updated category header'
   );
   // Resource summary should appear before the <details> block
-  const summaryIdx = createdBody.indexOf('module.svc.aws_ecs_service.ecs');
+  const summaryIdx = createdBody.indexOf('module.app.aws_ecs_service.main');
   const detailsIdx = createdBody.indexOf('<details>');
   assert(summaryIdx < detailsIdx, 'Resource summary should appear before <details>');
 

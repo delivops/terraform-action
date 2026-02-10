@@ -124,7 +124,7 @@ module.exports = async ({ github, context, core }) => {
       if (items.length > MAX_RESOURCE_LINES) {
         lines.push(`- *... and ${items.length - MAX_RESOURCE_LINES} more*`);
       }
-      sections.push(`**${label}**\n${lines.join('\n')}`);
+      sections.push(`### ${label}\n${lines.join('\n')}`);
     }
     if (sections.length === 0) return '';
     return '\n' + sections.join('\n\n') + '\n';
@@ -245,6 +245,8 @@ module.exports = async ({ github, context, core }) => {
     `## ${headerTitle}`,
     resourceSummary,
     validateDetails,
+    '\n## ',
+    '\n### Details',
     planBody,
     statusTable,
     hasTruncation ? `\n**⚠️ Output truncated due to length. [View full logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}).**` : '',
