@@ -19,20 +19,22 @@ module.exports = async ({ github, context, core }) => {
   // Function to truncate output if too long
   function truncateOutput(content, maxLines = 50) {
     if (!content || content.trim() === '') {
-      return 'No output available';
+      return { text: 'No output available', truncated: false };
     }
     const lines = content.split('\n');
     if (lines.length > maxLines) {
-      hasTruncation = true;
-      return `... (${lines.length - maxLines} lines truncated) ...\n\n${lines.slice(-maxLines).join('\n')}`;
+      return {
+        text: `... (${lines.length - maxLines} lines truncated) ...\n\n${lines.slice(-maxLines).join('\n')}`,
+        truncated: true,
+      };
     }
-    return content;
+    return { text: content, truncated: false };
   }
 
   // Function to process terraform plan output - find relevant section
   function processPlanOutput(content) {
     if (!content || content.trim() === '' || content === 'null') {
-      return 'No output available';
+      return { text: 'No output available', truncated: false };
     }
     const lines = content.split('\n');
     const indicators = [
@@ -47,18 +49,26 @@ module.exports = async ({ github, context, core }) => {
     let idx = lines.findIndex((l) => indicators.some((ind) => l.includes(ind)));
     const relevant = idx >= 0 ? lines.slice(idx) : lines;
     if (relevant.length > 100) {
-      hasTruncation = true;
-      return `... (${relevant.length - 100} lines truncated) ...\n\n${relevant.slice(-100).join('\n')}`;
+      return {
+        text: `... (${relevant.length - 100} lines truncated) ...\n\n${relevant.slice(-100).join('\n')}`,
+        truncated: true,
+      };
     }
-    return relevant.join('\n');
+    return { text: relevant.join('\n'), truncated: false };
   }
 
   const tempDir = process.env.RUNNER_TEMP || '/tmp';
-  const fmtOutput = truncateOutput(readFileSafe(`${tempDir}/terraform-outputs-fmt.txt`), 30);
-  const initOutput = truncateOutput(readFileSafe(`${tempDir}/terraform-outputs-init.txt`), 50);
-  const validateOutput = truncateOutput(readFileSafe(`${tempDir}/terraform-outputs-validate.txt`), 50);
-  const planOutput = processPlanOutput(readFileSafe(`${tempDir}/terraform-outputs-plan.txt`));
+  const fmtResult = truncateOutput(readFileSafe(`${tempDir}/terraform-outputs-fmt.txt`), 30);
+  const initResult = truncateOutput(readFileSafe(`${tempDir}/terraform-outputs-init.txt`), 50);
+  const validateResult = truncateOutput(readFileSafe(`${tempDir}/terraform-outputs-validate.txt`), 50);
+  const planResult = processPlanOutput(readFileSafe(`${tempDir}/terraform-outputs-plan.txt`));
   const costOutput = readFileSafe(`${tempDir}/terraform-outputs-cost.txt`);
+
+  const fmtOutput = fmtResult.text;
+  const initOutput = initResult.text;
+  const validateOutput = validateResult.text;
+  const planOutput = planResult.text;
+  hasTruncation = fmtResult.truncated || initResult.truncated || validateResult.truncated || planResult.truncated;
 
   // Build header with plan summary if available
   let headerSummary = '';
@@ -89,8 +99,9 @@ module.exports = async ({ github, context, core }) => {
   // Build cost estimation section if available
   let costSection = '';
   if (costOutput && costOutput.trim() !== '' && !costOutput.includes('Cost estimation failed')) {
-    const truncatedCost = truncateOutput(costOutput, 100);
-    costSection = `\n#### Cost Estimation 💰\n\n<details><summary>Show Cost Breakdown</summary>\n\n\`\`\`\n${truncatedCost}\n\`\`\`\n\n</details>\n`;
+    const costResult = truncateOutput(costOutput, 100);
+    if (costResult.truncated) hasTruncation = true;
+    costSection = `\n#### Cost Estimation 💰\n\n<details><summary>Show Cost Breakdown</summary>\n\n\`\`\`\n${costResult.text}\n\`\`\`\n\n</details>\n`;
   }
 
   // Build plan section based on outcomes
@@ -117,15 +128,19 @@ module.exports = async ({ github, context, core }) => {
     validateSection = `#### Terraform Validation 🤖 \`${process.env.VALIDATE_OUTCOME}\` ✅\n\n<details><summary>Validation Output</summary>\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>`;
   }
 
-  const comment = `## Terraform ${environment}
-${headerSummary}${lockWarning}
-#### Terraform Format and Style 🖌 \`${process.env.FMT_OUTCOME}\`${process.env.FMT_OUTCOME === 'failure' ? ' ❌' : ' ✅'}${fmtSection}
-#### Terraform Initialization ⚙️ \`${process.env.INIT_OUTCOME}\`${process.env.INIT_OUTCOME === 'failure' ? ' ❌' : ' ✅'}
-${validateSection}
-
-${planSection}
-
-*Pushed by: @${context.actor}, Action: \`${context.eventName}\`*${hasTruncation ? `\n\n**⚠️ Output truncated due to length. [View full logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}).**` : ''}`;
+  const comment = [
+    `## Terraform ${environment}`,
+    headerSummary,
+    lockWarning,
+    `#### Terraform Format and Style 🖌 \`${process.env.FMT_OUTCOME}\`${process.env.FMT_OUTCOME === 'failure' ? ' ❌' : ' ✅'}${fmtSection}`,
+    `#### Terraform Initialization ⚙️ \`${process.env.INIT_OUTCOME}\`${process.env.INIT_OUTCOME === 'failure' ? ' ❌' : ' ✅'}`,
+    validateSection,
+    '',
+    planSection,
+    '',
+    `*Pushed by: @${context.actor}, Action: \`${context.eventName}\`*`,
+    hasTruncation ? `\n**⚠️ Output truncated due to length. [View full logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}).**` : '',
+  ].filter(Boolean).join('\n');
 
   // Find existing comment or create new one
   const comments = await github.paginate(

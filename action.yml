@@ -127,16 +127,20 @@ runs:
       run: |
         if terraform init > "$RUNNER_TEMP/terraform-outputs-init.txt" 2>&1; then
           cat "$RUNNER_TEMP/terraform-outputs-init.txt"
-        elif terraform init -upgrade > "$RUNNER_TEMP/terraform-outputs-init.txt" 2>&1; then
-          cat "$RUNNER_TEMP/terraform-outputs-init.txt"
         else
-          cat "$RUNNER_TEMP/terraform-outputs-init.txt"
-          exit 1
+          echo "--- First attempt failed, trying with -upgrade ---" >> "$RUNNER_TEMP/terraform-outputs-init.txt"
+          if terraform init -upgrade >> "$RUNNER_TEMP/terraform-outputs-init.txt" 2>&1; then
+            cat "$RUNNER_TEMP/terraform-outputs-init.txt"
+          else
+            cat "$RUNNER_TEMP/terraform-outputs-init.txt"
+            exit 1
+          fi
         fi
       continue-on-error: true
 
     - name: Terraform Validate
       id: validate
+      if: steps.init.outcome == 'success'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       run: |
@@ -151,21 +155,27 @@ runs:
       id: plan
       shell: bash
       working-directory: ${{ inputs.working_directory }}
-      if: github.event_name == 'pull_request' && steps.validate.outputs.outcome == 'success'
+      if: steps.init.outcome == 'success' && github.event_name == 'pull_request' && steps.validate.outputs.outcome == 'success'
+      env:
+        TF_VAR_FILE: ${{ inputs.var_file }}
+        TF_EXTRA_ARGS: ${{ inputs.extra_args }}
       run: |
         VAR_FILE_ARG=""
-        if [[ -n "${{ inputs.var_file }}" ]]; then
-          VAR_FILE_ARG="-var-file=${{ inputs.var_file }}"
+        if [[ -n "$TF_VAR_FILE" ]]; then
+          VAR_FILE_ARG="-var-file=$TF_VAR_FILE"
         fi
         
-        if terraform plan -no-color -input=false -out="$RUNNER_TEMP/terraform-outputs-plan.tfplan" $VAR_FILE_ARG ${{ inputs.extra_args }}; then
+        if terraform plan -no-color -input=false -out="$RUNNER_TEMP/terraform-outputs-plan.tfplan" $VAR_FILE_ARG $TF_EXTRA_ARGS; then
           echo "outcome=success" >> $GITHUB_OUTPUT
         else
           echo "outcome=failure" >> $GITHUB_OUTPUT
         fi
         
-        # Convert plan to human-readable text for processing
+        # Convert plan to human-readable text for PR comment
         terraform show -no-color "$RUNNER_TEMP/terraform-outputs-plan.tfplan" > "$RUNNER_TEMP/terraform-outputs-plan.txt" 2>&1 || echo "Plan failed" > "$RUNNER_TEMP/terraform-outputs-plan.txt"
+        
+        # Convert plan to JSON for Infracost
+        terraform show -json "$RUNNER_TEMP/terraform-outputs-plan.tfplan" > "$RUNNER_TEMP/terraform-outputs-plan.json" 2>/dev/null || true
         
         # Extract change counts (e.g., "Plan: 3 to add, 1 to change, 0 to destroy")
         PLAN_SUMMARY=$(grep -E "Plan:|No changes" "$RUNNER_TEMP/terraform-outputs-plan.txt" | head -1 || echo "")
@@ -189,7 +199,7 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       run: |
-        infracost breakdown --path "$RUNNER_TEMP/terraform-outputs-plan.tfplan" --format table > "$RUNNER_TEMP/terraform-outputs-cost.txt" 2>&1 || echo "Cost estimation failed" > "$RUNNER_TEMP/terraform-outputs-cost.txt"
+        infracost breakdown --path "$RUNNER_TEMP/terraform-outputs-plan.json" --format table > "$RUNNER_TEMP/terraform-outputs-cost.txt" 2>&1 || echo "Cost estimation failed" > "$RUNNER_TEMP/terraform-outputs-cost.txt"
       continue-on-error: true
 
     - name: Comment on PR
@@ -221,13 +231,16 @@ runs:
       if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name == 'push' && inputs.plan_only != 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        TF_VAR_FILE: ${{ inputs.var_file }}
+        TF_EXTRA_ARGS: ${{ inputs.extra_args }}
       run: |
         VAR_FILE_ARG=""
-        if [[ -n "${{ inputs.var_file }}" ]]; then
-          VAR_FILE_ARG="-var-file=${{ inputs.var_file }}"
+        if [[ -n "$TF_VAR_FILE" ]]; then
+          VAR_FILE_ARG="-var-file=$TF_VAR_FILE"
         fi
         
-        terraform apply -auto-approve -input=false $VAR_FILE_ARG ${{ inputs.extra_args }}
+        terraform apply -auto-approve -input=false $VAR_FILE_ARG $TF_EXTRA_ARGS
 
     - name: Write Job Summary
       if: always()
