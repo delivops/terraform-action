@@ -127,7 +127,7 @@ module.exports = async ({ github, context, core }) => {
       sections.push(`### ${label}\n${lines.join('\n')}`);
     }
     if (sections.length === 0) return '';
-    return '\n' + sections.join('\n\n') + '\n';
+    return '\n' + sections.join('\n\n') + '\n##\n';
   }
 
   // Function to process terraform plan output - find relevant section
@@ -203,8 +203,8 @@ module.exports = async ({ github, context, core }) => {
   const tfVersion = process.env.TERRAFORM_VERSION || '';
 
   const statusTable = tfVersion
-    ? `| Format | Init | Validate | Plan | Lock File | Version |\n|:-:|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} | ${tfVersion} |`
-    : `| Format | Init | Validate | Plan | Lock File |\n|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} |`;
+    ? `\n| Format | Init | Validate | Plan | Lock File | Version |\n|:-:|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} | ${tfVersion} |`
+    : `\n| Format | Init | Validate | Plan | Lock File |\n|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} |`;
 
   // Build init section (only show if failed)
   let initSection = '';
@@ -244,9 +244,8 @@ module.exports = async ({ github, context, core }) => {
     marker,
     `## ${headerTitle}`,
     resourceSummary,
-    validateDetails,
-    '\n## ',
     '\n### Details',
+    validateDetails,
     planBody,
     statusTable,
     hasTruncation ? `\n**⚠️ Output truncated due to length. [View full logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}).**` : '',
