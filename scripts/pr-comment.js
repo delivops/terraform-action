@@ -1,10 +1,26 @@
 const fs = require('fs');
 
+// Build a unique hidden HTML marker to identify this comment.
+// Uses workflow file path + environment + working directory to avoid
+// collisions between projects that share the same environment name prefix.
+function buildCommentMarker(env, workDir, workflowRef) {
+  // Extract workflow file path from GITHUB_WORKFLOW_REF
+  // Format: "owner/repo/.github/workflows/file.yml@refs/heads/main"
+  let workflowPath = workflowRef || '';
+  const atIdx = workflowPath.indexOf('@');
+  if (atIdx >= 0) workflowPath = workflowPath.substring(0, atIdx);
+  // Strip "owner/repo/" prefix (first two path segments)
+  const parts = workflowPath.split('/');
+  if (parts.length > 2) workflowPath = parts.slice(2).join('/');
+  return `<!-- tf-action:workflow=${workflowPath}:env=${env}:dir=${workDir} -->`;
+}
+
 module.exports = async ({ github, context, core }) => {
   const environment = process.env.ENVIRONMENT;
   const planSummary = process.env.PLAN_SUMMARY || '';
   const lockChanged = process.env.LOCK_CHANGED === 'true';
   const workingDirectory = process.env.WORKING_DIRECTORY || '.';
+  const marker = buildCommentMarker(environment, workingDirectory, process.env.GITHUB_WORKFLOW_REF);
   let hasTruncation = false;
 
   // Helper to safely read file; returns empty string on error
@@ -29,6 +45,19 @@ module.exports = async ({ github, context, core }) => {
       };
     }
     return { text: content, truncated: false };
+  }
+
+  // Function to filter terraform init output - keep only errors
+  function filterInitOutput(content) {
+    if (!content || content.trim() === '') {
+      return content;
+    }
+    const lines = content.split('\n');
+    const errorIdx = lines.findIndex((line) => line.includes('Error:'));
+    if (errorIdx < 0) {
+      return content;
+    }
+    return lines.slice(errorIdx).join('\n').trim();
   }
 
   // Function to filter terraform validate output - keep only warnings, errors, and status
@@ -123,7 +152,7 @@ module.exports = async ({ github, context, core }) => {
   }
 
   const tempDir = process.env.RUNNER_TEMP || '/tmp';
-  const initResult = truncateOutput(readFileSafe(`${tempDir}/terraform-outputs-init.txt`), 50);
+  const initResult = truncateOutput(filterInitOutput(readFileSafe(`${tempDir}/terraform-outputs-init.txt`)), 50);
   const validateResult = truncateOutput(filterValidateOutput(readFileSafe(`${tempDir}/terraform-outputs-validate.txt`)), 50);
   const planResult = processPlanOutput(readFileSafe(`${tempDir}/terraform-outputs-plan.txt`));
   const costOutput = readFileSafe(`${tempDir}/terraform-outputs-cost.txt`);
@@ -206,6 +235,7 @@ module.exports = async ({ github, context, core }) => {
   }
 
   const comment = [
+    marker,
     `## ${headerTitle}`,
     resourceSummary,
     validateDetails,
@@ -225,7 +255,11 @@ module.exports = async ({ github, context, core }) => {
     }
   );
 
-  const botComment = comments.find((c) => c.body && c.body.includes(`## Terraform ${environment}`));
+  // Match by unique hidden marker; fall back to legacy heading match for backward compatibility
+  let botComment = comments.find((c) => c.body && c.body.includes(marker));
+  if (!botComment) {
+    botComment = comments.find((c) => c.body && c.body.includes(`## Terraform ${environment}`) && !c.body.includes('<!-- tf-action:'));
+  }
   if (botComment) {
     await github.rest.issues.updateComment({
       comment_id: botComment.id,

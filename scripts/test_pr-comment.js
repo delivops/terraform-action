@@ -11,6 +11,15 @@ const assert = require('assert');
 // Helpers extracted for unit testing
 // ---------------------------------------------------------------------------
 
+function buildCommentMarker(env, workDir, workflowRef) {
+  let workflowPath = workflowRef || '';
+  const atIdx = workflowPath.indexOf('@');
+  if (atIdx >= 0) workflowPath = workflowPath.substring(0, atIdx);
+  const parts = workflowPath.split('/');
+  if (parts.length > 2) workflowPath = parts.slice(2).join('/');
+  return `<!-- tf-action:workflow=${workflowPath}:env=${env}:dir=${workDir} -->`;
+}
+
 function truncateOutput(content, maxLines = 50) {
   if (!content || content.trim() === '') {
     return { text: 'No output available', truncated: false };
@@ -72,6 +81,18 @@ function filterValidateOutput(content) {
 }
 
 const MAX_RESOURCE_LINES = 20;
+
+function filterInitOutput(content) {
+  if (!content || content.trim() === '') {
+    return content;
+  }
+  const lines = content.split('\n');
+  const errorIdx = lines.findIndex((line) => line.includes('Error:'));
+  if (errorIdx < 0) {
+    return content;
+  }
+  return lines.slice(errorIdx).join('\n').trim();
+}
 
 function extractResourceChanges(content) {
   const result = { created: [], updated: [], deleted: [], replaced: [] };
@@ -232,6 +253,63 @@ test('keeps clean output unchanged', () => {
   assert.strictEqual(filterValidateOutput(input), input);
 });
 
+console.log('\nfilterInitOutput:');
+
+test('returns empty/null/undefined unchanged', () => {
+  assert.strictEqual(filterInitOutput(''), '');
+  assert.strictEqual(filterInitOutput(null), null);
+  assert.strictEqual(filterInitOutput(undefined), undefined);
+});
+
+test('extracts from first Error: line discarding noise above', () => {
+  const input = [
+    'Initializing the backend...',
+    'Initializing provider plugins...',
+    '- Finding hashicorp/aws versions matching "~> 5.0"...',
+    '- Installing hashicorp/aws v5.30.0...',
+    '- Installed hashicorp/aws v5.30.0',
+    '',
+    'Error: Terraform encountered problems during initialisation, including problems',
+    'with the configuration, described below.',
+    '',
+    'Error: Argument or block definition required',
+    '',
+    '  on ecs-clusters.tf line 12:',
+    '  12: X',
+    '',
+    'An argument or block definition is required here.',
+  ].join('\n');
+  const result = filterInitOutput(input);
+  assert(result.startsWith('Error: Terraform encountered problems'));
+  assert(!result.includes('Initializing'));
+  assert(!result.includes('Installing'));
+  assert(result.includes('Argument or block definition required'));
+});
+
+test('returns full output when no Error: found', () => {
+  const input = [
+    'Initializing the backend...',
+    'Initializing provider plugins...',
+    '- Finding hashicorp/aws versions matching "~> 5.0"...',
+    'Terraform has been successfully initialized!',
+  ].join('\n');
+  assert.strictEqual(filterInitOutput(input), input);
+});
+
+test('works with filter then truncate pipeline', () => {
+  const noiseLines = Array.from({ length: 20 }, (_, i) => `Provider download line ${i}`);
+  const errorLines = Array.from({ length: 60 }, (_, i) => `Error detail line ${i}`);
+  errorLines[0] = 'Error: Something went wrong';
+  const input = [...noiseLines, ...errorLines].join('\n');
+  const filtered = filterInitOutput(input);
+  assert(filtered.startsWith('Error: Something went wrong'));
+  assert(!filtered.includes('Provider download'));
+  const result = truncateOutput(filtered, 50);
+  assert.strictEqual(result.truncated, true);
+  assert(result.text.includes('lines truncated'));
+  assert(result.text.includes('Error detail line 59'));
+});
+
 console.log('\nprocessPlanOutput:');
 
 test('returns "No output available" for empty string', () => {
@@ -320,6 +398,7 @@ test('module runs and creates a comment via mock', async () => {
     GITHUB_REPOSITORY: 'test/repo',
     GITHUB_RUN_ID: '123',
     TERRAFORM_VERSION: '1.9.8',
+    GITHUB_WORKFLOW_REF: 'test/repo/.github/workflows/terraform.yml@refs/heads/main',
   });
 
   let createdBody = null;
@@ -345,6 +424,7 @@ test('module runs and creates a comment via mock', async () => {
   await prComment({ github: mockGithub, context: mockContext, core: {} });
 
   assert(createdBody !== null, 'Comment body should be set');
+  assert(createdBody.includes('<!-- tf-action:workflow=.github/workflows/terraform.yml:env=test-env:dir=. -->'), 'Should include hidden marker');
   assert(createdBody.includes('## Terraform test-env'), 'Should include environment header');
   assert(createdBody.includes('| ✅ | ✅ | ✅ | ✅ | ✅ |'), 'Should include all-success status table row');
   assert(!createdBody.includes('Validation Output'), 'Should not show validation collapsible for clean success');
@@ -386,6 +466,7 @@ test('module shows (non-blocking) for fmt failure without details', async () => 
     GITHUB_REPOSITORY: 'test/repo',
     GITHUB_RUN_ID: '789',
     TERRAFORM_VERSION: '1.9.8',
+    GITHUB_WORKFLOW_REF: 'test/repo/.github/workflows/terraform.yml@refs/heads/main',
   });
 
   let createdBody = null;
@@ -451,6 +532,7 @@ test('module shows truncation warning when plan is very long', async () => {
     GITHUB_REPOSITORY: 'test/repo',
     GITHUB_RUN_ID: '456',
     TERRAFORM_VERSION: '1.9.8',
+    GITHUB_WORKFLOW_REF: 'test/repo/.github/workflows/terraform.yml@refs/heads/main',
   });
 
   let createdBody = null;
@@ -621,6 +703,7 @@ test('module includes resource changes in plan success comment', async () => {
     GITHUB_REPOSITORY: 'test/repo',
     GITHUB_RUN_ID: '999',
     TERRAFORM_VERSION: '1.9.8',
+    GITHUB_WORKFLOW_REF: 'test/repo/.github/workflows/terraform.yml@refs/heads/main',
   });
 
   let createdBody = null;
@@ -695,6 +778,7 @@ test('module shows ⚠️ validate icon and collapsible when validate has warnin
     GITHUB_REPOSITORY: 'test/repo',
     GITHUB_RUN_ID: '1000',
     TERRAFORM_VERSION: '1.9.8',
+    GITHUB_WORKFLOW_REF: 'test/repo/.github/workflows/terraform.yml@refs/heads/main',
   });
 
   let createdBody = null;
@@ -758,6 +842,7 @@ test('module shows ✅ validate icon and no collapsible for clean success', asyn
     GITHUB_REPOSITORY: 'test/repo',
     GITHUB_RUN_ID: '1001',
     TERRAFORM_VERSION: '1.9.8',
+    GITHUB_WORKFLOW_REF: 'test/repo/.github/workflows/terraform.yml@refs/heads/main',
   });
 
   let createdBody = null;
@@ -784,6 +869,240 @@ test('module shows ✅ validate icon and no collapsible for clean success', asyn
   assert(createdBody !== null, 'Comment body should be set');
   assert(createdBody.includes('| ✅ | ✅ | ✅ | ✅ | ✅ |'), 'Should show ✅ for clean validate');
   assert(!createdBody.includes('Validation Output'), 'Should NOT show validation collapsible for clean success');
+
+  for (const key of Object.keys(process.env)) {
+    if (!(key in origEnv)) delete process.env[key];
+    else process.env[key] = origEnv[key];
+  }
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// buildCommentMarker tests
+// ---------------------------------------------------------------------------
+
+console.log('\nbuildCommentMarker:');
+
+test('builds marker from full workflow ref', () => {
+  const result = buildCommentMarker('prod', './infra', 'owner/repo/.github/workflows/terraform.yml@refs/heads/main');
+  assert.strictEqual(result, '<!-- tf-action:workflow=.github/workflows/terraform.yml:env=prod:dir=./infra -->');
+});
+
+test('handles missing workflow ref gracefully', () => {
+  const result = buildCommentMarker('dev', '.', '');
+  assert.strictEqual(result, '<!-- tf-action:workflow=:env=dev:dir=. -->');
+});
+
+test('handles workflow ref without @ suffix', () => {
+  const result = buildCommentMarker('staging', './app', 'owner/repo/.github/workflows/deploy.yml');
+  assert.strictEqual(result, '<!-- tf-action:workflow=.github/workflows/deploy.yml:env=staging:dir=./app -->');
+});
+
+test('different working dirs produce different markers', () => {
+  const m1 = buildCommentMarker('prod', './infra/project-a', 'o/r/.github/workflows/ci.yml@refs/heads/main');
+  const m2 = buildCommentMarker('prod', './infra/project-ab', 'o/r/.github/workflows/ci.yml@refs/heads/main');
+  assert.notStrictEqual(m1, m2, 'Markers should differ for different working dirs');
+});
+
+test('same env name prefix does not collide', () => {
+  const m1 = buildCommentMarker('prod', '.', 'o/r/.github/workflows/ci.yml@refs/heads/main');
+  const m2 = buildCommentMarker('prod-eu', '.', 'o/r/.github/workflows/ci.yml@refs/heads/main');
+  assert(!m1.includes(m2) && !m2.includes(m1), 'Markers should not be substrings of each other');
+});
+
+// ---------------------------------------------------------------------------
+// Integration: marker-based comment detection
+// ---------------------------------------------------------------------------
+
+console.log('\nIntegration (marker-based detection):');
+
+test('updates existing comment matched by marker instead of creating new', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-fmt.txt'), '');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-init.txt'), 'Initialized');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-validate.txt'), 'Success! The configuration is valid.');
+  fs.writeFileSync(
+    path.join(tmpDir, 'terraform-outputs-plan.txt'),
+    'No changes. Your infrastructure matches the configuration.'
+  );
+
+  const origEnv = { ...process.env };
+  Object.assign(process.env, {
+    ENVIRONMENT: 'prod',
+    PLAN_SUMMARY: 'No changes',
+    LOCK_CHANGED: 'false',
+    WORKING_DIRECTORY: './infra',
+    FMT_OUTCOME: 'success',
+    INIT_OUTCOME: 'success',
+    VALIDATE_OUTCOME: 'success',
+    PLAN_OUTCOME: 'success',
+    RUNNER_TEMP: tmpDir,
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_REPOSITORY: 'test/repo',
+    GITHUB_RUN_ID: '2000',
+    TERRAFORM_VERSION: '1.9.8',
+    GITHUB_WORKFLOW_REF: 'test/repo/.github/workflows/terraform.yml@refs/heads/main',
+  });
+
+  const existingMarker = '<!-- tf-action:workflow=.github/workflows/terraform.yml:env=prod:dir=./infra -->';
+  let updatedId = null;
+  let updatedBody = null;
+  let createdBody = null;
+  const mockGithub = {
+    paginate: async () => [
+      { id: 100, body: existingMarker + '\n## Terraform prod\nold content' },
+      { id: 101, body: '<!-- tf-action:workflow=.github/workflows/terraform.yml:env=prod:dir=./other -->\n## Terraform prod\nother project' },
+    ],
+    rest: {
+      issues: {
+        listComments: {},
+        updateComment: async ({ comment_id, body }) => { updatedId = comment_id; updatedBody = body; },
+        createComment: async ({ body }) => { createdBody = body; },
+      },
+    },
+  };
+  const mockContext = {
+    actor: 'test-user',
+    eventName: 'pull_request',
+    issue: { number: 50 },
+    repo: { owner: 'test', repo: 'repo' },
+  };
+
+  delete require.cache[require.resolve('./pr-comment.js')];
+  const prComment = require('./pr-comment.js');
+  await prComment({ github: mockGithub, context: mockContext, core: {} });
+
+  assert.strictEqual(updatedId, 100, 'Should update the comment with matching marker (id=100)');
+  assert(updatedBody.includes(existingMarker), 'Updated body should contain the marker');
+  assert.strictEqual(createdBody, null, 'Should NOT create a new comment');
+
+  for (const key of Object.keys(process.env)) {
+    if (!(key in origEnv)) delete process.env[key];
+    else process.env[key] = origEnv[key];
+  }
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test('falls back to legacy heading match for old comments without marker', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-fmt.txt'), '');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-init.txt'), 'Initialized');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-validate.txt'), 'Success! The configuration is valid.');
+  fs.writeFileSync(
+    path.join(tmpDir, 'terraform-outputs-plan.txt'),
+    'No changes. Your infrastructure matches the configuration.'
+  );
+
+  const origEnv = { ...process.env };
+  Object.assign(process.env, {
+    ENVIRONMENT: 'staging',
+    PLAN_SUMMARY: 'No changes',
+    LOCK_CHANGED: 'false',
+    WORKING_DIRECTORY: '.',
+    FMT_OUTCOME: 'success',
+    INIT_OUTCOME: 'success',
+    VALIDATE_OUTCOME: 'success',
+    PLAN_OUTCOME: 'success',
+    RUNNER_TEMP: tmpDir,
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_REPOSITORY: 'test/repo',
+    GITHUB_RUN_ID: '2001',
+    TERRAFORM_VERSION: '1.9.8',
+    GITHUB_WORKFLOW_REF: 'test/repo/.github/workflows/terraform.yml@refs/heads/main',
+  });
+
+  let updatedId = null;
+  let updatedBody = null;
+  const mockGithub = {
+    paginate: async () => [
+      { id: 200, body: '## Terraform staging\nold comment without marker' },
+    ],
+    rest: {
+      issues: {
+        listComments: {},
+        updateComment: async ({ comment_id, body }) => { updatedId = comment_id; updatedBody = body; },
+        createComment: async () => {},
+      },
+    },
+  };
+  const mockContext = {
+    actor: 'test-user',
+    eventName: 'pull_request',
+    issue: { number: 51 },
+    repo: { owner: 'test', repo: 'repo' },
+  };
+
+  delete require.cache[require.resolve('./pr-comment.js')];
+  const prComment = require('./pr-comment.js');
+  await prComment({ github: mockGithub, context: mockContext, core: {} });
+
+  assert.strictEqual(updatedId, 200, 'Should update the legacy comment via heading fallback');
+  assert(updatedBody.includes('<!-- tf-action:'), 'Updated body should now contain the marker for future runs');
+
+  for (const key of Object.keys(process.env)) {
+    if (!(key in origEnv)) delete process.env[key];
+    else process.env[key] = origEnv[key];
+  }
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test('does not match legacy comment that already has a different marker', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-fmt.txt'), '');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-init.txt'), 'Initialized');
+  fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-validate.txt'), 'Success! The configuration is valid.');
+  fs.writeFileSync(
+    path.join(tmpDir, 'terraform-outputs-plan.txt'),
+    'No changes. Your infrastructure matches the configuration.'
+  );
+
+  const origEnv = { ...process.env };
+  Object.assign(process.env, {
+    ENVIRONMENT: 'prod',
+    PLAN_SUMMARY: 'No changes',
+    LOCK_CHANGED: 'false',
+    WORKING_DIRECTORY: './project-a',
+    FMT_OUTCOME: 'success',
+    INIT_OUTCOME: 'success',
+    VALIDATE_OUTCOME: 'success',
+    PLAN_OUTCOME: 'success',
+    RUNNER_TEMP: tmpDir,
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_REPOSITORY: 'test/repo',
+    GITHUB_RUN_ID: '2002',
+    TERRAFORM_VERSION: '1.9.8',
+    GITHUB_WORKFLOW_REF: 'test/repo/.github/workflows/terraform.yml@refs/heads/main',
+  });
+
+  let createdBody = null;
+  let updatedId = null;
+  const mockGithub = {
+    paginate: async () => [
+      // Existing comment for project-ab (different dir, same env) — has its own marker
+      { id: 300, body: '<!-- tf-action:workflow=.github/workflows/terraform.yml:env=prod:dir=./project-ab -->\n## Terraform prod\nother project' },
+    ],
+    rest: {
+      issues: {
+        listComments: {},
+        updateComment: async ({ comment_id }) => { updatedId = comment_id; },
+        createComment: async ({ body }) => { createdBody = body; },
+      },
+    },
+  };
+  const mockContext = {
+    actor: 'test-user',
+    eventName: 'pull_request',
+    issue: { number: 52 },
+    repo: { owner: 'test', repo: 'repo' },
+  };
+
+  delete require.cache[require.resolve('./pr-comment.js')];
+  const prComment = require('./pr-comment.js');
+  await prComment({ github: mockGithub, context: mockContext, core: {} });
+
+  assert.strictEqual(updatedId, null, 'Should NOT update the comment with a different marker');
+  assert(createdBody !== null, 'Should create a new comment');
+  assert(createdBody.includes('dir=./project-a -->'), 'New comment should have correct marker');
 
   for (const key of Object.keys(process.env)) {
     if (!(key in origEnv)) delete process.env[key];

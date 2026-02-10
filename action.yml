@@ -125,11 +125,11 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       run: |
-        if terraform init > "$RUNNER_TEMP/terraform-outputs-init.txt" 2>&1; then
+        if terraform init -no-color > "$RUNNER_TEMP/terraform-outputs-init.txt" 2>&1; then
           cat "$RUNNER_TEMP/terraform-outputs-init.txt"
         else
           echo "--- First attempt failed, trying with -upgrade ---" >> "$RUNNER_TEMP/terraform-outputs-init.txt"
-          if terraform init -upgrade >> "$RUNNER_TEMP/terraform-outputs-init.txt" 2>&1; then
+          if terraform init -upgrade -no-color >> "$RUNNER_TEMP/terraform-outputs-init.txt" 2>&1; then
             cat "$RUNNER_TEMP/terraform-outputs-init.txt"
           else
             cat "$RUNNER_TEMP/terraform-outputs-init.txt"
@@ -216,6 +216,7 @@ runs:
         RUNNER_TEMP: ${{ runner.temp }}
         WORKING_DIRECTORY: ${{ inputs.working_directory }}
         TERRAFORM_VERSION: ${{ inputs.terraform_version }}
+        GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
       with:
         github-token: ${{ inputs.github_token }}
         script: |
