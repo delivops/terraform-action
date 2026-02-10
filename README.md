@@ -156,8 +156,8 @@ jobs:
       - uses: delivops/terraform-action@v1
         with:
           working_directory: "infrastructure"
-          github_token: \${{ secrets.GITHUB_TOKEN }}
-          aws_account_id: \${{ secrets.AWS_ACCOUNT_ID }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          aws_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
           environment: "production"
           aws_region: "us-east-1"
           aws_role: "github_terraform"
@@ -173,13 +173,13 @@ jobs:
       - uses: delivops/terraform-action@v1
         with:
           working_directory: "infrastructure"
-          github_token: \${{ secrets.GITHUB_TOKEN }}
-          aws_account_id: \${{ secrets.AWS_ACCOUNT_ID }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          aws_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
           environment: "production"
           aws_region: "us-east-1"
           aws_role: "github_terraform"
           enable_cost_estimation: true
-          infracost_api_key: \${{ secrets.INFRACOST_API_KEY }}
+          infracost_api_key: ${{ secrets.INFRACOST_API_KEY }}
 \`\`\`
 
 > 💡 Get your free Infracost API key at [infracost.io](https://www.infracost.io/)
@@ -194,8 +194,8 @@ jobs:
       - uses: delivops/terraform-action@v1
         with:
           working_directory: "infrastructure"
-          github_token: \${{ secrets.GITHUB_TOKEN }}
-          aws_account_id: \${{ secrets.AWS_ACCOUNT_ID }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          aws_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
           environment: "production"
           aws_region: "us-east-1"
           aws_role: "github_terraform"
@@ -212,8 +212,8 @@ jobs:
       - uses: delivops/terraform-action@v1
         with:
           working_directory: "infrastructure"
-          github_token: \${{ secrets.GITHUB_TOKEN }}
-          aws_account_id: \${{ secrets.AWS_ACCOUNT_ID }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          aws_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
           environment: "production"
           aws_region: "us-east-1"
           aws_role: "github_terraform"
@@ -252,12 +252,12 @@ jobs:
     steps:
       - uses: delivops/terraform-action@v1
         with:
-          working_directory: \${{ matrix.working_directory }}
-          github_token: \${{ secrets.GITHUB_TOKEN }}
-          aws_account_id: \${{ secrets.AWS_ACCOUNT_ID }}
-          environment: \${{ matrix.environment }}
+          working_directory: ${{ matrix.working_directory }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          aws_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
+          environment: ${{ matrix.environment }}
           aws_region: "us-east-1"
-          aws_role: \${{ matrix.aws_role }}
+          aws_role: ${{ matrix.aws_role }}
 \`\`\`
 
 ### Using Outputs
@@ -271,18 +271,18 @@ jobs:
         id: terraform
         with:
           working_directory: "infrastructure"
-          github_token: \${{ secrets.GITHUB_TOKEN }}
-          aws_account_id: \${{ secrets.AWS_ACCOUNT_ID }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          aws_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
           environment: "production"
           aws_region: "us-east-1"
           aws_role: "github_terraform"
       
       - name: Check Outputs
         run: |
-          echo "Format: \${{ steps.terraform.outputs.fmt_outcome }}"
-          echo "Validate: \${{ steps.terraform.outputs.validate_outcome }}"
-          echo "Plan: \${{ steps.terraform.outputs.plan_outcome }}"
-          echo "Apply: \${{ steps.terraform.outputs.apply_outcome }}"
+          echo "Format: ${{ steps.terraform.outputs.fmt_outcome }}"
+          echo "Validate: ${{ steps.terraform.outputs.validate_outcome }}"
+          echo "Plan: ${{ steps.terraform.outputs.plan_outcome }}"
+          echo "Apply: ${{ steps.terraform.outputs.apply_outcome }}"
 \`\`\`
 
 ---
