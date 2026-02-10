@@ -74,23 +74,41 @@ function filterValidateOutput(content) {
 const MAX_RESOURCE_LINES = 20;
 
 function extractResourceChanges(content) {
-  if (!content || content.trim() === '') return [];
-  const matches = [];
+  const result = { created: [], updated: [], deleted: [], replaced: [] };
+  if (!content || content.trim() === '') return result;
   for (const line of content.split('\n')) {
-    const m = line.match(/^\s+#\s+(.+\s+(?:will be|must be)\s+.+)$/);
-    if (m) matches.push(m[1].trim());
+    const m = line.match(/^\s+#\s+(.+)\s+(will be|must be)\s+(.+)$/);
+    if (!m) continue;
+    const resource = m[1].trim();
+    const action = m[3].trim();
+    if (action === 'created') result.created.push(resource);
+    else if (action === 'updated in-place') result.updated.push(resource);
+    else if (action === 'destroyed') result.deleted.push(resource);
+    else if (action.includes('replaced')) result.replaced.push(resource);
   }
-  return matches;
+  return result;
 }
 
 function buildResourceSummary(changes) {
-  if (changes.length === 0) return '';
-  const shown = changes.slice(0, MAX_RESOURCE_LINES);
-  const lines = shown.map((c) => `- \`${c}\``);
-  if (changes.length > MAX_RESOURCE_LINES) {
-    lines.push(`- *... and ${changes.length - MAX_RESOURCE_LINES} more changes*`);
+  const categories = [
+    { key: 'created', label: '🟢 Created' },
+    { key: 'updated', label: '🔄 Updated' },
+    { key: 'deleted', label: '🔴 Deleted' },
+      { key: 'replaced', label: '⚠️ Replaced' },
+  ];
+  const sections = [];
+  for (const { key, label } of categories) {
+    const items = changes[key] || [];
+    if (items.length === 0) continue;
+    const shown = items.slice(0, MAX_RESOURCE_LINES);
+    const lines = shown.map((r) => `- \`${r}\``);
+    if (items.length > MAX_RESOURCE_LINES) {
+      lines.push(`- *... and ${items.length - MAX_RESOURCE_LINES} more*`);
+    }
+    sections.push(`**${label}**\n${lines.join('\n')}`);
   }
-  return '\n' + lines.join('\n') + '\n';
+  if (sections.length === 0) return '';
+  return '\n' + sections.join('\n\n') + '\n';
 }
 
 // ---------------------------------------------------------------------------
@@ -470,12 +488,13 @@ test('module shows truncation warning when plan is very long', async () => {
 
 console.log('\nextractResourceChanges:');
 
-test('returns empty array for empty content', () => {
-  assert.deepStrictEqual(extractResourceChanges(''), []);
-  assert.deepStrictEqual(extractResourceChanges(null), []);
+test('returns empty categorized object for empty content', () => {
+  const empty = { created: [], updated: [], deleted: [], replaced: [] };
+  assert.deepStrictEqual(extractResourceChanges(''), empty);
+  assert.deepStrictEqual(extractResourceChanges(null), empty);
 });
 
-test('extracts "will be updated in-place" lines', () => {
+test('categorizes "will be updated in-place" lines', () => {
   const content = [
     'Terraform will perform the following actions:',
     '',
@@ -485,10 +504,11 @@ test('extracts "will be updated in-place" lines', () => {
     '    }',
   ].join('\n');
   const result = extractResourceChanges(content);
-  assert.deepStrictEqual(result, ['module.svc.aws_ecs_service.ecs will be updated in-place']);
+  assert.deepStrictEqual(result.updated, ['module.svc.aws_ecs_service.ecs']);
+  assert.deepStrictEqual(result.created, []);
 });
 
-test('extracts "will be created" and "will be destroyed" lines', () => {
+test('categorizes "will be created" and "will be destroyed" lines', () => {
   const content = [
     '  # aws_instance.web will be created',
     '  + resource "aws_instance" "web" {}',
@@ -496,16 +516,28 @@ test('extracts "will be created" and "will be destroyed" lines', () => {
     '  - resource "aws_instance" "old" {}',
   ].join('\n');
   const result = extractResourceChanges(content);
-  assert.deepStrictEqual(result, [
-    'aws_instance.web will be created',
-    'aws_instance.old will be destroyed',
-  ]);
+  assert.deepStrictEqual(result.created, ['aws_instance.web']);
+  assert.deepStrictEqual(result.deleted, ['aws_instance.old']);
 });
 
-test('extracts "must be replaced" lines', () => {
+test('categorizes "must be replaced" lines', () => {
   const content = '  # aws_instance.web must be replaced\n  other stuff';
   const result = extractResourceChanges(content);
-  assert.deepStrictEqual(result, ['aws_instance.web must be replaced']);
+  assert.deepStrictEqual(result.replaced, ['aws_instance.web']);
+});
+
+test('categorizes mixed change types correctly', () => {
+  const content = [
+    '  # aws_instance.new will be created',
+    '  # aws_instance.svc will be updated in-place',
+    '  # aws_instance.old will be destroyed',
+    '  # aws_instance.disk must be replaced',
+  ].join('\n');
+  const result = extractResourceChanges(content);
+  assert.deepStrictEqual(result.created, ['aws_instance.new']);
+  assert.deepStrictEqual(result.updated, ['aws_instance.svc']);
+  assert.deepStrictEqual(result.deleted, ['aws_instance.old']);
+  assert.deepStrictEqual(result.replaced, ['aws_instance.disk']);
 });
 
 test('ignores non-resource lines', () => {
@@ -515,26 +547,37 @@ test('ignores non-resource lines', () => {
     '  # (3 unchanged blocks hidden)',
   ].join('\n');
   const result = extractResourceChanges(content);
-  assert.deepStrictEqual(result, []);
+  const empty = { created: [], updated: [], deleted: [], replaced: [] };
+  assert.deepStrictEqual(result, empty);
 });
 
 console.log('\nbuildResourceSummary:');
 
 test('returns empty string for no changes', () => {
-  assert.strictEqual(buildResourceSummary([]), '');
+  assert.strictEqual(buildResourceSummary({ created: [], updated: [], deleted: [], replaced: [] }), '');
 });
 
-test('builds bullet list for a few changes', () => {
-  const result = buildResourceSummary(['aws_instance.web will be created']);
-  assert(result.includes('- `aws_instance.web will be created`'));
+test('builds categorized sections', () => {
+  const result = buildResourceSummary({
+    created: ['aws_instance.web'],
+    updated: ['aws_instance.svc'],
+    deleted: [],
+    replaced: [],
+  });
+  assert(result.includes('🟢 Created'), 'Should include Created header');
+  assert(result.includes('- `aws_instance.web`'), 'Should list created resource');
+  assert(result.includes('🔄 Updated'), 'Should include Updated header');
+  assert(result.includes('- `aws_instance.svc`'), 'Should list updated resource');
+  assert(!result.includes('🔴 Deleted'), 'Should not include empty Deleted section');
+  assert(!result.includes('⚠️ Replaced'), 'Should not include empty Replaced section');
 });
 
-test('truncates at 20 lines with overflow message', () => {
-  const changes = Array.from({ length: 25 }, (_, i) => `resource.item${i} will be created`);
-  const result = buildResourceSummary(changes);
-  assert(result.includes('`resource.item19 will be created`'), 'Should include 20th item');
-  assert(!result.includes('`resource.item20 will be created`'), 'Should not include 21st item');
-  assert(result.includes('... and 5 more changes'), 'Should show overflow count');
+test('truncates at 20 lines per category with overflow message', () => {
+  const created = Array.from({ length: 25 }, (_, i) => `resource.item${i}`);
+  const result = buildResourceSummary({ created, updated: [], deleted: [], replaced: [] });
+  assert(result.includes('`resource.item19`'), 'Should include 20th item');
+  assert(!result.includes('`resource.item20`'), 'Should not include 21st item');
+  assert(result.includes('... and 5 more'), 'Should show overflow count');
 });
 
 console.log('\nIntegration (resource changes in comment):');
@@ -597,11 +640,15 @@ test('module includes resource changes in plan success comment', async () => {
 
   assert(createdBody !== null, 'Comment body should be set');
   assert(
-    createdBody.includes('`module.svc.aws_ecs_service.ecs will be updated in-place`'),
-    'Should include resource change bullet'
+    createdBody.includes('`module.svc.aws_ecs_service.ecs`'),
+    'Should include resource name'
+  );
+  assert(
+    createdBody.includes('🔄 Updated'),
+    'Should include Updated category header'
   );
   // Resource summary should appear before the <details> block
-  const summaryIdx = createdBody.indexOf('will be updated in-place');
+  const summaryIdx = createdBody.indexOf('module.svc.aws_ecs_service.ecs');
   const detailsIdx = createdBody.indexOf('<details>');
   assert(summaryIdx < detailsIdx, 'Resource summary should appear before <details>');
 

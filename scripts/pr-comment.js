@@ -55,27 +55,45 @@ module.exports = async ({ github, context, core }) => {
     return collapsed.join('\n').trim();
   }
 
-  // Extract resource change lines from plan output (e.g. "# aws_instance.x will be updated in-place")
+  // Extract resource change lines from plan output, categorized by action type
   const MAX_RESOURCE_LINES = 20;
   function extractResourceChanges(content) {
-    if (!content || content.trim() === '') return [];
-    const matches = [];
+    const result = { created: [], updated: [], deleted: [], replaced: [] };
+    if (!content || content.trim() === '') return result;
     for (const line of content.split('\n')) {
-      const m = line.match(/^\s+#\s+(.+\s+(?:will be|must be)\s+.+)$/);
-      if (m) matches.push(m[1].trim());
+      const m = line.match(/^\s+#\s+(.+)\s+(will be|must be)\s+(.+)$/);
+      if (!m) continue;
+      const resource = m[1].trim();
+      const action = m[3].trim();
+      if (action === 'created') result.created.push(resource);
+      else if (action === 'updated in-place') result.updated.push(resource);
+      else if (action === 'destroyed') result.deleted.push(resource);
+      else if (action.includes('replaced')) result.replaced.push(resource);
     }
-    return matches;
+    return result;
   }
 
-  // Build a markdown bullet list of resource changes, truncated to MAX_RESOURCE_LINES
+  // Build categorized markdown lists of resource changes
   function buildResourceSummary(changes) {
-    if (changes.length === 0) return '';
-    const shown = changes.slice(0, MAX_RESOURCE_LINES);
-    const lines = shown.map((c) => `- \`${c}\``);
-    if (changes.length > MAX_RESOURCE_LINES) {
-      lines.push(`- *... and ${changes.length - MAX_RESOURCE_LINES} more changes*`);
+    const categories = [
+      { key: 'created', label: '🟢 Created' },
+      { key: 'updated', label: '🔄 Updated' },
+      { key: 'deleted', label: '🔴 Deleted' },
+      { key: 'replaced', label: '⚠️ Replaced' },
+    ];
+    const sections = [];
+    for (const { key, label } of categories) {
+      const items = changes[key] || [];
+      if (items.length === 0) continue;
+      const shown = items.slice(0, MAX_RESOURCE_LINES);
+      const lines = shown.map((r) => `- \`${r}\``);
+      if (items.length > MAX_RESOURCE_LINES) {
+        lines.push(`- *... and ${items.length - MAX_RESOURCE_LINES} more*`);
+      }
+      sections.push(`**${label}**\n${lines.join('\n')}`);
     }
-    return '\n' + lines.join('\n') + '\n';
+    if (sections.length === 0) return '';
+    return '\n' + sections.join('\n\n') + '\n';
   }
 
   // Function to process terraform plan output - find relevant section
@@ -168,7 +186,7 @@ module.exports = async ({ github, context, core }) => {
   } else if (process.env.VALIDATE_OUTCOME === 'failure') {
     planBody = `<details><summary>Validation Failed - Show Details</summary>\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform validation failed!** Fix the errors above before merging.`;
   } else if (process.env.PLAN_OUTCOME === 'success') {
-    planBody = `<details><summary>Show Plan</summary>\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n\n</details>\n${costSection}`;
+    planBody = `<details><summary>Show Full Plan</summary>\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n\n</details>\n${costSection}`;
   } else if (process.env.PLAN_OUTCOME === 'failure') {
     planBody = `<details><summary>Plan Failed - Show Details</summary>\n\n\`\`\`\n${planOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform plan failed!** Fix the errors above before merging.`;
   } else {
