@@ -145,14 +145,19 @@ runs:
           VAR_FILE_ARG="-var-file=$TF_VAR_FILE"
         fi
         
-        if terraform plan -no-color -input=false -out="$RUNNER_TEMP/terraform-outputs-plan.tfplan" $VAR_FILE_ARG $TF_EXTRA_ARGS; then
+        # Capture plan output directly so error diagnostics are preserved
+        terraform plan -no-color -input=false -out="$RUNNER_TEMP/terraform-outputs-plan.tfplan" $VAR_FILE_ARG $TF_EXTRA_ARGS \
+          > "$RUNNER_TEMP/terraform-outputs-plan.txt" 2>&1
+        PLAN_EXIT=$?
+        if [ $PLAN_EXIT -eq 0 ]; then
           echo "outcome=success" >> $GITHUB_OUTPUT
+          # On success, overwrite with terraform show for cleaner formatting
+          terraform show -no-color "$RUNNER_TEMP/terraform-outputs-plan.tfplan" > "$RUNNER_TEMP/terraform-outputs-plan.txt" 2>&1 \
+            || true
         else
           echo "outcome=failure" >> $GITHUB_OUTPUT
+          # On failure, the captured output already contains full error details
         fi
-        
-        # Convert plan to human-readable text for PR comment
-        terraform show -no-color "$RUNNER_TEMP/terraform-outputs-plan.tfplan" > "$RUNNER_TEMP/terraform-outputs-plan.txt" 2>&1 || echo "Plan failed" > "$RUNNER_TEMP/terraform-outputs-plan.txt"
         
         # Extract change counts (e.g., "Plan: 3 to add, 1 to change, 0 to destroy")
         PLAN_SUMMARY=$(grep -E "Plan:|No changes" "$RUNNER_TEMP/terraform-outputs-plan.txt" | head -1 || echo "")

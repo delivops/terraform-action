@@ -437,6 +437,35 @@ test('returns all lines when no indicator found', () => {
   assert.strictEqual(result.truncated, false);
 });
 
+test('preserves full multi-error plan output', () => {
+  const content = [
+    'Planning failed. Terraform encountered an error while generating this plan.',
+    '',
+    '',
+    'Error: Invalid reference',
+    '',
+    '  on main.tf line 10, in resource "test_resource" "foo":',
+    '  10:   value = var.undefined_var',
+    '',
+    'A managed resource "test_resource" "foo" has not been declared.',
+    '',
+    'Error: Missing required argument',
+    '',
+    '  on main.tf line 20, in resource "test_resource" "bar":',
+    '  20:   name = ""',
+    '',
+    'The argument "name" is required, but no value was given.',
+  ].join('\n');
+  const result = processPlanOutput(content);
+  assert(result.text.includes('Planning failed'), 'Should include planning failed message');
+  assert(result.text.includes('Error: Invalid reference'), 'Should include first error type');
+  assert(result.text.includes('Error: Missing required argument'), 'Should include second error type');
+  assert(result.text.includes('main.tf line 10'), 'Should include first error location');
+  assert(result.text.includes('main.tf line 20'), 'Should include second error location');
+  assert(result.text.includes('no value was given'), 'Should include error guidance');
+  assert.strictEqual(result.truncated, false);
+});
+
 test('truncates relevant section when over 500 lines', () => {
   const noise = Array.from({ length: 5 }, (_, i) => `noise${i}`);
   const planLines = Array.from({ length: 600 }, (_, i) => `resource${i}`);
