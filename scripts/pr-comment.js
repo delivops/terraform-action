@@ -160,7 +160,6 @@ module.exports = async ({ github, context, core }) => {
   const initResult = truncateOutput(filterInitOutput(readFileSafe(`${tempDir}/terraform-outputs-init.txt`)), 50);
   const validateResult = truncateOutput(filterValidateOutput(readFileSafe(`${tempDir}/terraform-outputs-validate.txt`)), 50);
   const planResult = processPlanOutput(readFileSafe(`${tempDir}/terraform-outputs-plan.txt`));
-  const costOutput = readFileSafe(`${tempDir}/terraform-outputs-cost.txt`);
 
   const initOutput = initResult.text;
   const validateOutput = validateResult.text;
@@ -212,14 +211,6 @@ module.exports = async ({ github, context, core }) => {
     initSection = `\n<details><summary>❌ Init Failed - Show Details</summary>\n\n\`\`\`\n${initOutput}\n\`\`\`\n\n</details>\n`;
   }
 
-  // Build cost estimation section if available
-  let costSection = '';
-  if (costOutput && costOutput.trim() !== '' && !costOutput.includes('Cost estimation failed')) {
-    const costResult = truncateOutput(costOutput, 100);
-    if (costResult.truncated) hasTruncation = true;
-    costSection = `\n#### Cost Estimation 💰\n\n<details><summary>Show Cost Breakdown</summary>\n\n\`\`\`\n${costResult.text}\n\`\`\`\n\n</details>\n`;
-  }
-
   // Build validation details (collapsible, only when there are warnings)
   let validateDetails = '';
   if (process.env.INIT_OUTCOME !== 'failure' && process.env.VALIDATE_OUTCOME !== 'failure' && !isCleanValidation) {
@@ -233,7 +224,7 @@ module.exports = async ({ github, context, core }) => {
   } else if (process.env.VALIDATE_OUTCOME === 'failure') {
     planBody = `<details><summary>Validation Failed - Show Details</summary>\n\n\`\`\`\n${validateOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform validation failed!** Fix the errors above before merging.`;
   } else if (process.env.PLAN_OUTCOME === 'success') {
-    planBody = `<details><summary>Show Full Plan</summary>\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n\n</details>\n${costSection}`;
+    planBody = `<details><summary>Show Full Plan</summary>\n\n\`\`\`terraform\n${planOutput}\n\`\`\`\n\n</details>`;
   } else if (process.env.PLAN_OUTCOME === 'failure') {
     planBody = `<details><summary>Plan Failed - Show Details</summary>\n\n\`\`\`\n${planOutput}\n\`\`\`\n\n</details>\n\n> ❌ **Terraform plan failed!** Fix the errors above before merging.`;
   } else {

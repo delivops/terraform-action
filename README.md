@@ -13,7 +13,6 @@ This GitHub Action automatically:
 - Generates a Terraform plan (`terraform plan`)
 - Comments the validation and plan results directly on pull requests
 - Applies Terraform changes on `main` branch push (`terraform apply`)
-- Optionally estimates infrastructure costs with Infracost
 
 ---
 
@@ -26,9 +25,8 @@ This GitHub Action follows these steps to perform Terraform commands:
 3. **Runs terraform init** - Initializes the Terraform working directory
 4. **Runs terraform validate** - Ensures the configuration is syntactically valid
 5. **Runs terraform plan** - Generates an execution plan (on PRs)
-6. **Runs Infracost** - Estimates costs if enabled (on PRs)
-7. **Comments on PR** - Posts formatted results directly on the pull request
-8. **Runs terraform apply** - Automatically applies changes on main branch push
+6. **Comments on PR** - Posts formatted results directly on the pull request
+7. **Runs terraform apply** - Automatically applies changes on main branch push
 
 ## Features
 
@@ -39,8 +37,6 @@ This GitHub Action follows these steps to perform Terraform commands:
 ✔️ **PR Commenting**: Posts Terraform plan outputs directly on your Pull Requests.
 
 ✔️ **Auto Apply on Main**: Automatically applies Terraform changes when pushing to the main branch.
-
-✔️ **Cost Estimation**: Optional Infracost integration for infrastructure cost visibility.
 
 ✔️ **Detailed Plan Reporting**: Summarizes all Terraform steps (format, init, validate, plan) in a structured PR comment.
 
@@ -103,8 +99,7 @@ This action uses AWS OIDC for secure authentication. You need to:
 | \`var_file\` | ❌ | - | Path to a \`.tfvars\` file (relative to working_directory) |
 | \`extra_args\` | ❌ | - | Additional arguments for terraform plan/apply |
 | \`plan_only\` | ❌ | \`false\` | Skip apply even on main branch push |
-| \`enable_cost_estimation\` | ❌ | \`false\` | Enable Infracost cost estimation |
-| \`infracost_api_key\` | ❌ | - | Infracost API key (required if cost estimation enabled) |
+
 
 ## Outputs
 
@@ -163,27 +158,6 @@ jobs:
           aws_region: "us-east-1"
           aws_role: "github_terraform"
 \`\`\`
-
-### With Cost Estimation
-
-\`\`\`yaml
-jobs:
-  terraform:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: delivops/terraform-action@v1
-        with:
-          working_directory: "infrastructure"
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          aws_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
-          environment: "production"
-          aws_region: "us-east-1"
-          aws_role: "github_terraform"
-          enable_cost_estimation: true
-          infracost_api_key: ${{ secrets.INFRACOST_API_KEY }}
-\`\`\`
-
-> 💡 Get your free Infracost API key at [infracost.io](https://www.infracost.io/)
 
 ### With Variable File
 
