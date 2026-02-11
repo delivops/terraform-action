@@ -189,22 +189,22 @@ module.exports = async ({ github, context, core }) => {
     headerTitle += ' (no changes)';
   }
 
-  // Build status icons for the compact table
-  const fmtIcon = process.env.FMT_OUTCOME === 'failure' ? '⚠️' : '✅';
-  const initIcon = process.env.INIT_OUTCOME === 'failure' ? '❌' : '✅';
-  let validateIcon = isCleanValidation ? '✅' : '⚠️';
-  if (process.env.INIT_OUTCOME === 'failure') validateIcon = '⏭️';
-  else if (process.env.VALIDATE_OUTCOME === 'failure') validateIcon = '❌';
-  let planIcon = '✅';
-  if (process.env.INIT_OUTCOME === 'failure' || process.env.VALIDATE_OUTCOME === 'failure') planIcon = '⏭️';
-  else if (process.env.PLAN_OUTCOME === 'failure') planIcon = '❌';
-  else if (process.env.PLAN_OUTCOME !== 'success') planIcon = '⏭️';
-  const lockIcon = lockChanged ? '⚠️' : '✅';
+  // Build descriptive status labels for the compact table
+  const fmtStatus = process.env.FMT_OUTCOME === 'failure' ? '⚠️ Invalid' : '✅ Valid';
+  const initStatus = process.env.INIT_OUTCOME === 'failure' ? '❌ Failed' : '✅ Passed';
+  let validateStatus = isCleanValidation ? '✅ Passed' : '⚠️ Warnings';
+  if (process.env.INIT_OUTCOME === 'failure') validateStatus = '⏭️ Skipped';
+  else if (process.env.VALIDATE_OUTCOME === 'failure') validateStatus = '❌ Failed';
+  let planStatus = '✅ Passed';
+  if (process.env.INIT_OUTCOME === 'failure' || process.env.VALIDATE_OUTCOME === 'failure') planStatus = '⏭️ Skipped';
+  else if (process.env.PLAN_OUTCOME === 'failure') planStatus = '❌ Failed';
+  else if (process.env.PLAN_OUTCOME !== 'success') planStatus = '⏭️ Skipped';
+  const lockStatus = lockChanged ? '⚠️ Changed' : '✅ Up to date';
   const tfVersion = process.env.TERRAFORM_VERSION || '';
 
   const statusTable = tfVersion
-    ? `\n| Format | Init | Validate | Plan | Lock File | Version |\n|:-:|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} | ${tfVersion} |`
-    : `\n| Format | Init | Validate | Plan | Lock File |\n|:-:|:-:|:-:|:-:|:-:|\n| ${fmtIcon} | ${initIcon} | ${validateIcon} | ${planIcon} | ${lockIcon} |`;
+    ? `\n| Format | Init | Validate | Plan | Lock File | Version |\n|:-:|:-:|:-:|:-:|:-:|:-:|\n| ${fmtStatus} | ${initStatus} | ${validateStatus} | ${planStatus} | ${lockStatus} | ${tfVersion} |`
+    : `\n| Format | Init | Validate | Plan | Lock File |\n|:-:|:-:|:-:|:-:|:-:|\n| ${fmtStatus} | ${initStatus} | ${validateStatus} | ${planStatus} | ${lockStatus} |`;
 
   // Build init section (only show if failed)
   let initSection = '';

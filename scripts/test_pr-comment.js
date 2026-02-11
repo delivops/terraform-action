@@ -469,7 +469,7 @@ test('module runs and creates a comment via mock', async () => {
   assert(createdBody !== null, 'Comment body should be set');
   assert(createdBody.includes('<!-- tf-action:workflow=.github/workflows/terraform.yml:env=test-env:dir=. -->'), 'Should include hidden marker');
   assert(createdBody.includes('## Terraform test-env'), 'Should include environment header');
-  assert(createdBody.includes('| ✅ | ✅ | ✅ | ✅ | ✅ | 1.9.8 |'), 'Should include all-success status table row with version');
+  assert(createdBody.includes('| ✅ Valid | ✅ Passed | ✅ Passed | ✅ Passed | ✅ Up to date | 1.9.8 |'), 'Should include all-success status table row with version');
   assert(!createdBody.includes('Validation Output'), 'Should not show validation collapsible for clean success');
   assert(createdBody.includes('| Version |'), 'Should include Version column header');
   assert(!createdBody.includes('Output truncated'), 'Should not show truncation warning for short output');
@@ -536,7 +536,7 @@ test('module shows (non-blocking) for fmt failure without details', async () => 
   await prComment({ github: mockGithub, context: mockContext, core: {} });
 
   assert(createdBody !== null, 'Comment body should be set');
-  assert(createdBody.includes('| ⚠️ | ✅ | ✅ | ✅ |'), 'Should show ⚠️ for fmt failure in table');
+  assert(createdBody.includes('| ⚠️ Invalid | ✅ Passed | ✅ Passed | ✅ Passed |'), 'Should show ⚠️ Invalid for fmt failure in table');
   assert(!createdBody.includes('Format Issues Found'), 'Should not show fmt details');
   assert(!createdBody.includes('some diff output'), 'Should not include fmt diff content');
 
@@ -846,7 +846,7 @@ test('module shows ⚠️ validate icon and collapsible when validate has warnin
   await prComment({ github: mockGithub, context: mockContext, core: {} });
 
   assert(createdBody !== null, 'Comment body should be set');
-  assert(createdBody.includes('| ✅ | ✅ | ⚠️ | ✅ | ✅ |'), 'Should show ⚠️ for validate with warnings');
+  assert(createdBody.includes('| ✅ Valid | ✅ Passed | ⚠️ Warnings | ✅ Passed | ✅ Up to date |'), 'Should show ⚠️ Warnings for validate with warnings');
   assert(createdBody.includes('Validation Output'), 'Should show validation collapsible when warnings present');
   assert(createdBody.includes('Warning: Deprecated attribute'), 'Should include warning text in collapsible');
 
@@ -857,7 +857,7 @@ test('module shows ⚠️ validate icon and collapsible when validate has warnin
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-test('module shows ✅ validate icon and no collapsible for clean success', async () => {
+test('module shows Passed validate status and no collapsible for clean success', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
   fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-fmt.txt'), '');
   fs.writeFileSync(path.join(tmpDir, 'terraform-outputs-init.txt'), 'Initialized');
@@ -910,7 +910,7 @@ test('module shows ✅ validate icon and no collapsible for clean success', asyn
   await prComment({ github: mockGithub, context: mockContext, core: {} });
 
   assert(createdBody !== null, 'Comment body should be set');
-  assert(createdBody.includes('| ✅ | ✅ | ✅ | ✅ | ✅ |'), 'Should show ✅ for clean validate');
+  assert(createdBody.includes('| ✅ Valid | ✅ Passed | ✅ Passed | ✅ Passed | ✅ Up to date |'), 'Should show Passed for clean validate');
   assert(!createdBody.includes('Validation Output'), 'Should NOT show validation collapsible for clean success');
 
   for (const key of Object.keys(process.env)) {
