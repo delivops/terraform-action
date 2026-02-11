@@ -157,13 +157,21 @@ module.exports = async ({ github, context, core }) => {
     ];
     let idx = lines.findIndex((l) => indicators.some((ind) => l.includes(ind)));
     const relevant = idx >= 0 ? lines.slice(idx) : lines;
-    if (relevant.length > 500) {
+    const MAX_PLAN_CHARS = 50000;
+    const fullText = relevant.join('\n');
+    if (fullText.length > MAX_PLAN_CHARS) {
+      // Truncate from the beginning, keeping the tail. Start at a newline boundary.
+      let cutIdx = fullText.length - MAX_PLAN_CHARS;
+      const nextNewline = fullText.indexOf('\n', cutIdx);
+      if (nextNewline >= 0) cutIdx = nextNewline + 1;
+      const kept = fullText.substring(cutIdx);
+      const droppedLines = fullText.substring(0, cutIdx).split('\n').length;
       return {
-        text: `... (${relevant.length - 500} lines truncated) ...\n\n${relevant.slice(-500).join('\n')}`,
+        text: `... (${droppedLines} lines truncated) ...\n\n${kept}`,
         truncated: true,
       };
     }
-    return { text: relevant.join('\n'), truncated: false };
+    return { text: fullText, truncated: false };
   }
 
   const tempDir = process.env.RUNNER_TEMP || '/tmp';

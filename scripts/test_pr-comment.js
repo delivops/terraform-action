@@ -50,13 +50,20 @@ function processPlanOutput(content) {
   ];
   let idx = lines.findIndex((l) => indicators.some((ind) => l.includes(ind)));
   const relevant = idx >= 0 ? lines.slice(idx) : lines;
-  if (relevant.length > 500) {
+  const MAX_PLAN_CHARS = 50000;
+  const fullText = relevant.join('\n');
+  if (fullText.length > MAX_PLAN_CHARS) {
+    let cutIdx = fullText.length - MAX_PLAN_CHARS;
+    const nextNewline = fullText.indexOf('\n', cutIdx);
+    if (nextNewline >= 0) cutIdx = nextNewline + 1;
+    const kept = fullText.substring(cutIdx);
+    const droppedLines = fullText.substring(0, cutIdx).split('\n').length;
     return {
-      text: `... (${relevant.length - 500} lines truncated) ...\n\n${relevant.slice(-500).join('\n')}`,
+      text: `... (${droppedLines} lines truncated) ...\n\n${kept}`,
       truncated: true,
     };
   }
-  return { text: relevant.join('\n'), truncated: false };
+  return { text: fullText, truncated: false };
 }
 
 function filterValidateOutput(content) {
@@ -466,16 +473,29 @@ test('preserves full multi-error plan output', () => {
   assert.strictEqual(result.truncated, false);
 });
 
-test('truncates relevant section when over 500 lines', () => {
+test('truncates relevant section when over 50000 chars', () => {
   const noise = Array.from({ length: 5 }, (_, i) => `noise${i}`);
-  const planLines = Array.from({ length: 600 }, (_, i) => `resource${i}`);
+  // Each line ~110 chars to exceed 50000 chars with ~500 lines
+  const planLines = Array.from({ length: 600 }, (_, i) => `resource_change_${i}_${'x'.repeat(90)}`);
   const content = [...noise, 'Terraform will perform the following actions:', ...planLines].join('\n');
   const result = processPlanOutput(content);
   assert.strictEqual(result.truncated, true);
   assert(result.text.includes('lines truncated'));
-  // Should include the last 500 lines of the relevant section
-  assert(result.text.includes('resource599'));
-  assert(!result.text.includes('resource99\n'));
+  // Should include the last lines of the relevant section
+  assert(result.text.includes('resource_change_599'));
+  // Truncation should start at a newline boundary
+  assert(result.text.indexOf('\n') > 0, 'Should contain newlines');
+  const afterEllipsis = result.text.split('\n\n').slice(1).join('\n\n');
+  assert(!afterEllipsis.startsWith(' '), 'Kept portion should start at a line boundary');
+});
+
+test('does not truncate plan under 50000 chars', () => {
+  const noise = ['header line'];
+  const planLines = Array.from({ length: 100 }, (_, i) => `resource${i}`);
+  const content = [...noise, 'Terraform will perform the following actions:', ...planLines].join('\n');
+  const result = processPlanOutput(content);
+  assert.strictEqual(result.truncated, false);
+  assert(result.text.includes('resource99'));
 });
 
 // ---------------------------------------------------------------------------
