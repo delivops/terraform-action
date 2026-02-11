@@ -169,7 +169,8 @@ module.exports = async ({ github, context, core }) => {
   const tempDir = process.env.RUNNER_TEMP || '/tmp';
   const initResult = truncateOutput(filterInitOutput(readFileSafe(`${tempDir}/terraform-outputs-init.txt`)), 50);
   const validateResult = truncateOutput(filterValidateOutput(readFileSafe(`${tempDir}/terraform-outputs-validate.txt`)), 50);
-  const planResult = processPlanOutput(readFileSafe(`${tempDir}/terraform-outputs-plan.txt`));
+  const rawPlanContent = readFileSafe(`${tempDir}/terraform-outputs-plan.txt`);
+  const planResult = processPlanOutput(rawPlanContent);
 
   const initOutput = initResult.text;
   const validateOutput = validateResult.text;
@@ -185,8 +186,8 @@ module.exports = async ({ github, context, core }) => {
     }
   }
 
-  // Build resource change summary from plan output
-  const resourceChanges = extractResourceChanges(planOutput);
+  // Build resource change summary from raw (un-truncated) plan content
+  const resourceChanges = extractResourceChanges(rawPlanContent);
   const resourceSummary = buildResourceSummary(resourceChanges);
 
   // Build header with plan summary if available
