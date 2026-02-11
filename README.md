@@ -58,7 +58,7 @@ This action uses AWS OIDC for secure authentication. You need to:
 
 2. **Create an IAM Role** with a trust policy for GitHub Actions:
 
-\`\`\`json
+```json
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -79,7 +79,7 @@ This action uses AWS OIDC for secure authentication. You need to:
     }
   ]
 }
-\`\`\`
+```
 
 3. **Attach the necessary permissions** to the IAM role for your Terraform operations.
 
@@ -89,26 +89,26 @@ This action uses AWS OIDC for secure authentication. You need to:
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| \`working_directory\` | ✅ | - | Directory containing Terraform configuration |
-| \`environment\` | ✅ | - | Environment name (e.g., \`dev\`, \`staging\`, \`prod\`) |
-| \`aws_region\` | ✅ | - | AWS Region (e.g., \`us-east-1\`, \`eu-west-1\`) |
-| \`aws_role\` | ✅ | - | IAM role name to assume for AWS credentials |
-| \`aws_account_id\` | ✅ | - | AWS Account ID (12-digit number) |
-| \`github_token\` | ✅ | - | GitHub token for PR comments |
-| \`terraform_version\` | ❌ | \`1.9.8\` | Terraform version to install |
-| \`var_file\` | ❌ | - | Path to a \`.tfvars\` file (relative to working_directory) |
-| \`extra_args\` | ❌ | - | Additional arguments for terraform plan/apply |
-| \`plan_only\` | ❌ | \`false\` | Skip apply even on main branch push |
+| `working_directory` | ✅ | - | Directory containing Terraform configuration |
+| `environment` | ✅ | - | Environment name (e.g., `dev`, `staging`, `prod`) |
+| `aws_region` | ✅ | - | AWS Region (e.g., `us-east-1`, `eu-west-1`) |
+| `aws_role` | ✅ | - | IAM role name to assume for AWS credentials |
+| `aws_account_id` | ✅ | - | AWS Account ID (12-digit number) |
+| `github_token` | ✅ | - | GitHub token for PR comments |
+| `terraform_version` | ❌ | `1.9.8` | Terraform version to install |
+| `var_file` | ❌ | - | Path to a `.tfvars` file (relative to working_directory) |
+| `extra_args` | ❌ | - | Additional arguments for terraform plan/apply |
+| `plan_only` | ❌ | `false` | Skip apply even on main branch push |
 
 
 ## Outputs
 
 | Output | Description |
 |--------|-------------|
-| \`fmt_outcome\` | Outcome of terraform fmt check (\`success\`/\`failure\`) |
-| \`validate_outcome\` | Outcome of terraform validate (\`success\`/\`failure\`) |
-| \`plan_outcome\` | Outcome of terraform plan (\`success\`/\`failure\`/\`skipped\`) |
-| \`apply_outcome\` | Outcome of terraform apply (\`success\`/\`failure\`/\`skipped\`) |
+| `fmt_outcome` | Outcome of terraform fmt check (`success`/`failure`) |
+| `validate_outcome` | Outcome of terraform validate (`success`/`failure`) |
+| `plan_outcome` | Outcome of terraform plan (`success`/`failure`/`skipped`) |
+| `apply_outcome` | Outcome of terraform apply (`success`/`failure`/`skipped`) |
 
 ---
 
@@ -116,13 +116,13 @@ This action uses AWS OIDC for secure authentication. You need to:
 
 Your workflow must have the following permissions:
 
-\`\`\`yaml
+```yaml
 permissions:
   id-token: write      # Required for AWS OIDC authentication
   contents: read       # Required for checkout
   issues: write        # Required for PR comments via the Issues API
   pull-requests: write # Only required if you also need PR review comments
-\`\`\`
+```
 
 ---
 
@@ -130,7 +130,7 @@ permissions:
 
 ### Basic Usage
 
-\`\`\`yaml
+```yaml
 name: Terraform
 on:
   push:
@@ -157,11 +157,11 @@ jobs:
           environment: "production"
           aws_region: "us-east-1"
           aws_role: "github_terraform"
-\`\`\`
+```
 
 ### With Variable File
 
-\`\`\`yaml
+```yaml
 jobs:
   terraform:
     runs-on: ubuntu-latest
@@ -175,11 +175,11 @@ jobs:
           aws_region: "us-east-1"
           aws_role: "github_terraform"
           var_file: "production.tfvars"
-\`\`\`
+```
 
 ### Plan Only (No Auto-Apply)
 
-\`\`\`yaml
+```yaml
 jobs:
   terraform:
     runs-on: ubuntu-latest
@@ -193,11 +193,11 @@ jobs:
           aws_region: "us-east-1"
           aws_role: "github_terraform"
           plan_only: true
-\`\`\`
+```
 
 ### Multi-Environment Matrix
 
-\`\`\`yaml
+```yaml
 name: Terraform Multi-Environment
 on:
   push:
@@ -234,11 +234,11 @@ jobs:
           environment: ${{ matrix.environment }}
           aws_region: "us-east-1"
           aws_role: ${{ matrix.aws_role }}
-\`\`\`
+```
 
 ### Using Outputs
 
-\`\`\`yaml
+```yaml
 jobs:
   terraform:
     runs-on: ubuntu-latest
@@ -259,7 +259,7 @@ jobs:
           echo "Validate: ${{ steps.terraform.outputs.validate_outcome }}"
           echo "Plan: ${{ steps.terraform.outputs.plan_outcome }}"
           echo "Apply: ${{ steps.terraform.outputs.apply_outcome }}"
-\`\`\`
+```
 
 ---
 
