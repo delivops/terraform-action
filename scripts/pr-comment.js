@@ -65,7 +65,9 @@ module.exports = async ({ github, context, core }) => {
     return lines.slice(errorIdx).join('\n').trim();
   }
 
-  // Function to filter terraform validate output - keep only warnings, errors, and status
+  // Function to filter terraform validate output - keep only warnings, errors, and status.
+  // Strips provider SDK diagnostic metadata (key=value log lines) and keeps
+  // only human-readable messages like "Warning:", "Error:", resource context, etc.
   function filterValidateOutput(content) {
     if (!content || content.trim() === '') {
       return content;
@@ -74,6 +76,14 @@ module.exports = async ({ github, context, core }) => {
     const filtered = lines.filter((line) => {
       // Drop timestamp-prefixed provider log lines (INFO, DEBUG, TRACE, WARN)
       if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s+\[(INFO|DEBUG|TRACE|WARN|ERROR)\]/.test(line)) {
+        return false;
+      }
+      // Drop provider SDK structured log lines containing diagnostic metadata key=value pairs
+      if (/(?:diagnostic_detail|diagnostic_severity|diagnostic_summary|diagnostic_attribute|tf_provider_addr|tf_resource_type|tf_proto_version|tf_rpc|tf_req_id|@caller|@module)=/.test(line)) {
+        return false;
+      }
+      // Drop pipe-prefixed continuation lines from diagnostic_detail blocks
+      if (/^\s+\|/.test(line)) {
         return false;
       }
       return true;
@@ -189,7 +199,7 @@ module.exports = async ({ github, context, core }) => {
   }
 
   // Build descriptive status labels for the compact table
-  const fmtStatus = process.env.FMT_OUTCOME === 'failure' ? '⚠️ Invalid' : '✅ Valid';
+  const fmtStatus = process.env.FMT_OUTCOME === 'failure' ? '⚠️ Need Formatting' : '✅ Valid';
   const initStatus = process.env.INIT_OUTCOME === 'failure' ? '❌ Failed' : '✅ Passed';
   let validateStatus = isCleanValidation ? '✅ Passed' : '⚠️ Warnings';
   if (process.env.INIT_OUTCOME === 'failure') validateStatus = '⏭️ Skipped';

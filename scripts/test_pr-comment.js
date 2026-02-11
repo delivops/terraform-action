@@ -68,6 +68,12 @@ function filterValidateOutput(content) {
     if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s+\[(INFO|DEBUG|TRACE|WARN|ERROR)\]/.test(line)) {
       return false;
     }
+    if (/(?:diagnostic_detail|diagnostic_severity|diagnostic_summary|diagnostic_attribute|tf_provider_addr|tf_resource_type|tf_proto_version|tf_rpc|tf_req_id|@caller|@module)=/.test(line)) {
+      return false;
+    }
+    if (/^\s+\|/.test(line)) {
+      return false;
+    }
     return true;
   });
   const collapsed = filtered.reduce((acc, line) => {
@@ -249,6 +255,41 @@ test('collapses consecutive blank lines after filtering', () => {
   const result = filterValidateOutput(input);
   assert(!result.includes('\n\n\n'), 'Should not have triple blank lines');
   assert(result.includes('Warning: something'));
+});
+
+test('strips provider SDK diagnostic metadata lines', () => {
+  const input = [
+    'diagnostic_detail=',
+    '  | No attribute specified when one (and only one) of [rule[0].filter,rule[0].prefix] is required',
+    '  | ',
+    '  | This will be an error in a future version of the provider',
+    '   diagnostic_severity=WARNING diagnostic_attribute="AttributeName(\\"rule\\").ElementKeyInt(0)" tf_provider_addr=registry.terraform.io/hashicorp/aws timestamp=2026-02-11T00:22:29.012Z',
+    '   diagnostic_severity=WARNING tf_provider_addr=registry.terraform.io/hashicorp/aws tf_resource_type=aws_s3_bucket_lifecycle_configuration diagnostic_summary="Invalid Attribute Combination" tf_proto_version=5.8 tf_rpc=ValidateResourceTypeConfig @caller=github.com/hashicorp/terraform-plugin-go@v0.26.0/tfprotov5/internal/diag/diagnostics.go:60 diagnostic_attribute="AttributeName(\\"rule\\").ElementKeyInt(0)" tf_req_id=e5bd2ea5-dcb4-7eb6-5197-6c6d6c5f47f1 timestamp=2026-02-11T00:22:29.021Z',
+    '',
+    'Warning: Invalid Attribute Combination',
+    '',
+    '  with module.cms.aws_s3_bucket_lifecycle_configuration.cms_bucket_lifecycle,',
+    '  on ../../modules/cms-hosting/resources.tf line 90, in resource "aws_s3_bucket_lifecycle_configuration" "cms_bucket_lifecycle":',
+    '  90: resource "aws_s3_bucket_lifecycle_configuration" "cms_bucket_lifecycle" {',
+    '',
+    'No attribute specified when one (and only one) of',
+    '[rule[0].filter,rule[0].prefix] is required',
+    '',
+    '(and 4 more similar warnings elsewhere)',
+    'Success! The configuration is valid, but there were some validation warnings',
+  ].join('\n');
+  const result = filterValidateOutput(input);
+  assert(!result.includes('diagnostic_detail'), 'Should not contain diagnostic_detail lines');
+  assert(!result.includes('diagnostic_severity'), 'Should not contain diagnostic_severity lines');
+  assert(!result.includes('tf_provider_addr'), 'Should not contain tf_provider_addr lines');
+  assert(!result.includes('tf_resource_type'), 'Should not contain tf_resource_type lines');
+  assert(!result.includes('@caller'), 'Should not contain @caller lines');
+  assert(!result.includes('  | No attribute'), 'Should not contain pipe-prefixed detail lines');
+  assert(result.includes('Warning: Invalid Attribute Combination'), 'Should keep Warning heading');
+  assert(result.includes('with module.cms'), 'Should keep resource context');
+  assert(result.includes('resources.tf line 90'), 'Should keep file context');
+  assert(result.includes('No attribute specified'), 'Should keep the human-readable description');
+  assert(result.includes('Success!'), 'Should keep the status line');
 });
 
 test('keeps clean output unchanged', () => {
@@ -536,7 +577,7 @@ test('module shows (non-blocking) for fmt failure without details', async () => 
   await prComment({ github: mockGithub, context: mockContext, core: {} });
 
   assert(createdBody !== null, 'Comment body should be set');
-  assert(createdBody.includes('| ⚠️ Invalid | ✅ Passed | ✅ Passed | ✅ Passed |'), 'Should show ⚠️ Invalid for fmt failure in table');
+  assert(createdBody.includes('| ⚠️ Need Formatting | ✅ Passed | ✅ Passed | ✅ Passed |'), 'Should show ⚠️ Need Formatting for fmt failure in table');
   assert(!createdBody.includes('Format Issues Found'), 'Should not show fmt details');
   assert(!createdBody.includes('some diff output'), 'Should not include fmt diff content');
 
