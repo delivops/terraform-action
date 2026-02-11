@@ -235,7 +235,7 @@ module.exports = async ({ github, context, core }) => {
     marker,
     `## ${headerTitle}`,
     resourceSummary,
-    '\n### Details',
+    '### Details',
     validateDetails,
     planBody,
     statusTable,
