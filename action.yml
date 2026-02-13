@@ -76,7 +76,7 @@ runs:
         echo "✅ All inputs validated successfully"
 
     - name: Git checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v4
